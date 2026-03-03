@@ -4,6 +4,15 @@
   "version": "0.1.0",
   "description": "AI writing that sounds like you",
   "permissions": ["activeTab", "scripting", "storage", "contextMenus"],
+  "host_permissions": [
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://api.anthropic.com/*",
+    "https://api.openai.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.noren.ink/*",
+    "https://*.noren.ink/*"
+  ],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {

@@ -203,17 +203,17 @@ const PROVIDER_PRESETS: Record<string, ProviderConfig> = {
     name: "ollama",
     type: "openai_compatible",
     baseUrl: "http://localhost:11434/v1",
-    model: "llama3.2",
+    model: "gemma3:1b",
     requiresKey: false,
   },
 };
 
 // ============================================================
-// Settings (chrome.storage.sync)
+// Settings (chrome.storage.local)
 // ============================================================
 
 export async function getSettings(): Promise<SettingsInfo> {
-  const data = await chrome.storage.sync.get([
+  const data = await chrome.storage.local.get([
     "provider_name", "provider_type", "provider_base_url", "provider_model", "provider_requires_key",
     "inference_mode",
   ]);
@@ -263,7 +263,23 @@ export async function setProvider(provider: {
     data.provider_requires_key = provider.requiresKey ?? true;
   }
 
-  await chrome.storage.sync.set(data);
+  await chrome.storage.local.set(data);
+}
+
+// ============================================================
+// Ollama model discovery
+// ============================================================
+
+export async function listOllamaModels(baseUrl?: string): Promise<string[]> {
+  const host = (baseUrl || "http://localhost:11434").replace(/\/v1\/?$/, "");
+  try {
+    const res = await fetch(`${host}/api/tags`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.models || []).map((m: { name: string }) => m.name);
+  } catch {
+    return [];
+  }
 }
 
 export async function saveApiKey(key: string): Promise<void> {
@@ -275,15 +291,15 @@ export async function removeApiKey(): Promise<void> {
 }
 
 export async function updateModel(model: string): Promise<void> {
-  await chrome.storage.sync.set({ provider_model: model });
+  await chrome.storage.local.set({ provider_model: model });
 }
 
 export async function updateBaseUrl(baseUrl: string): Promise<void> {
-  await chrome.storage.sync.set({ provider_base_url: baseUrl });
+  await chrome.storage.local.set({ provider_base_url: baseUrl });
 }
 
 export async function setInferenceMode(mode: "byok" | "noren_pro"): Promise<void> {
-  await chrome.storage.sync.set({ inference_mode: mode });
+  await chrome.storage.local.set({ inference_mode: mode });
 }
 
 // ============================================================

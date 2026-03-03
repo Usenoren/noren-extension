@@ -17,6 +17,7 @@
     openBillingPortal,
     googleOAuthInit,
     googleOAuthPoll,
+    listOllamaModels,
     type SettingsInfo,
     type NorenProStatus,
     type SubscriptionStatus,
@@ -54,8 +55,13 @@
   // Subscription state
   let subscription = $state<SubscriptionStatus | null>(null);
 
+  // Ollama model discovery
+  let ollamaModels = $state<string[]>([]);
+  let ollamaLoading = $state(false);
+
   let requiresKey = $derived(settings?.provider.requiresKey ?? true);
   let isCustom = $derived(selectedPreset === "custom");
+  let isOllama = $derived(selectedPreset === "ollama");
   let showProSection = $state(false);
 
   const tiers = [
@@ -73,6 +79,10 @@
       modelInput = settings.provider.model;
       baseUrlInput = settings.provider.baseUrl;
       showProSection = settings.inference_mode === "noren_pro";
+
+      if (settings.provider.name === "ollama") {
+        fetchOllamaModels(settings.provider.baseUrl);
+      }
 
       if (settings.noren_pro_logged_in) {
         try {
@@ -97,6 +107,18 @@
       }
     } catch (e) {
       error = friendlyError(e);
+    }
+  }
+
+  async function fetchOllamaModels(baseUrl?: string) {
+    ollamaLoading = true;
+    ollamaModels = await listOllamaModels(baseUrl);
+    ollamaLoading = false;
+
+    // Auto-select first model if current model isn't available
+    if (ollamaModels.length > 0 && !ollamaModels.includes(modelInput)) {
+      modelInput = ollamaModels[0];
+      await updateModel(modelInput);
     }
   }
 
@@ -200,6 +222,7 @@
     testResult = "";
     apiKeyInput = "";
     showKey = false;
+    ollamaModels = [];
 
     if (presetId === "custom") {
       baseUrlInput = "";
@@ -210,6 +233,11 @@
     try {
       await setProvider({ name: presetId });
       await loadSettings();
+
+      // Auto-detect models for Ollama
+      if (presetId === "ollama") {
+        await fetchOllamaModels();
+      }
     } catch (e) {
       error = friendlyError(e);
     }
@@ -511,20 +539,39 @@
 
       <div>
         <span class="block text-xs font-medium text-muted mb-1.5 uppercase tracking-wide">Model</span>
-        <div class="flex gap-2">
-          <input
-            type="text"
+        {#if isOllama && ollamaLoading}
+          <div class="flex items-center gap-2 text-xs text-muted">
+            <LoadingSpinner /> Detecting models...
+          </div>
+        {:else if isOllama && ollamaModels.length > 0}
+          <select
             bind:value={modelInput}
-            class="flex-1 px-3 py-1.5 text-xs border border-border bg-surface text-foreground rounded-md focus:outline-none focus:border-secondary"
-            placeholder="Model ID"
-          />
-          <button
-            onclick={handleModelSave}
-            class="px-3 py-1.5 text-xs border border-border hover:border-secondary transition-colors cursor-pointer text-muted hover:text-foreground rounded-md"
+            onchange={handleModelSave}
+            class="w-full px-3 py-1.5 text-xs border border-border bg-surface text-foreground rounded-md focus:outline-none focus:border-secondary"
           >
-            Save
-          </button>
-        </div>
+            {#each ollamaModels as m}
+              <option value={m}>{m}</option>
+            {/each}
+          </select>
+        {:else}
+          <div class="flex gap-2">
+            <input
+              type="text"
+              bind:value={modelInput}
+              class="flex-1 px-3 py-1.5 text-xs border border-border bg-surface text-foreground rounded-md focus:outline-none focus:border-secondary"
+              placeholder="Model ID"
+            />
+            <button
+              onclick={handleModelSave}
+              class="px-3 py-1.5 text-xs border border-border hover:border-secondary transition-colors cursor-pointer text-muted hover:text-foreground rounded-md"
+            >
+              Save
+            </button>
+          </div>
+          {#if isOllama}
+            <p class="text-[10px] text-warning mt-1">Could not detect models. Is Ollama running?</p>
+          {/if}
+        {/if}
       </div>
 
       {#if requiresKey}
