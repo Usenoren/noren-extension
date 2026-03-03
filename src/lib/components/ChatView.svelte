@@ -64,7 +64,37 @@
     });
 
     refreshHistory();
+    restoreActiveChat();
   });
+
+  /** Restore the last active conversation from storage on popup open */
+  async function restoreActiveChat() {
+    try {
+      const result = await chrome.storage.local.get("active_chat_id");
+      const id = result.active_chat_id;
+      if (id) {
+        const conv = await loadChat(id);
+        conversationId = conv.id;
+        conversationCreatedAt = conv.created_at;
+        format = conv.format;
+        totalTokens = conv.total_tokens;
+        messages = conv.messages;
+        scrollToBottom();
+      }
+    } catch {
+      // Chat was deleted or doesn't exist — start fresh
+      await chrome.storage.local.remove("active_chat_id");
+    }
+  }
+
+  /** Save the active conversation ID so it persists across popup reopens */
+  async function setActiveChatId(id: string | null) {
+    if (id) {
+      await chrome.storage.local.set({ active_chat_id: id });
+    } else {
+      await chrome.storage.local.remove("active_chat_id");
+    }
+  }
 
   // --- Helpers ---
 
@@ -182,6 +212,7 @@
         total_tokens: totalTokens,
         messages,
       });
+      await setActiveChatId(conversationId);
       await refreshHistory();
     } catch {
       // Non-critical
@@ -228,6 +259,7 @@
     error = "";
     input = "";
     showHistory = false;
+    setActiveChatId(null);
   }
 
   async function handleLoadChat(id: string) {
@@ -240,6 +272,7 @@
       messages = conv.messages;
       showHistory = false;
       scrollToBottom();
+      await setActiveChatId(conv.id);
     } catch (e) {
       error = friendlyError(e);
     }
@@ -250,7 +283,7 @@
     try {
       await deleteChat(id);
       if (conversationId === id) {
-        handleNewChat();
+        handleNewChat(); // also clears active_chat_id
       }
       await refreshHistory();
     } catch (err) {
