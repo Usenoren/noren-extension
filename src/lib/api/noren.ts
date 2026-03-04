@@ -64,6 +64,11 @@ export interface ProfileOverview {
   is_server?: boolean;
 }
 
+export interface ProfileContent {
+  core_identity: string;
+  contexts: Record<string, string>;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
@@ -319,6 +324,13 @@ async function byokGenerate(params: {
 
   // Build system message with voice profile context
   let system = params.systemPrompt || "You are a helpful writing assistant. Match the user's voice and style.";
+
+  // Inject voice profile if available
+  const voiceProfile = await getVoiceProfileText(params.format);
+  if (voiceProfile) {
+    system += `\n\n[Voice Profile — write in this style]:\n${voiceProfile}`;
+  }
+
   if (params.context) {
     system += `\n\nContext from the user's current document:\n${params.context}`;
   }
@@ -422,6 +434,13 @@ async function byokChat(
   const apiKey = await getApiKey();
 
   let system = "You are a helpful writing assistant. Match the user's voice and style.";
+
+  // Inject voice profile if available
+  const voiceProfile = await getVoiceProfileText(format);
+  if (voiceProfile) {
+    system += `\n\n[Voice Profile — write in this style]:\n${voiceProfile}`;
+  }
+
   if (format !== "general") {
     system += `\n[Format: ${format}]`;
   }
@@ -612,13 +631,93 @@ export async function getProfileOverview(): Promise<ProfileOverview> {
     }
   }
 
-  // BYOK — no server profile, just return empty
+  // BYOK — check local profile
+  const profile = await readLocalProfile();
+  if (profile && profile.core_identity.trim()) {
+    const formats = Object.keys(profile.contexts);
+    return { exists: true, formats };
+  }
   return { exists: false, formats: [] };
 }
 
 export async function listFormats(): Promise<string[]> {
   const overview = await getProfileOverview();
   return overview.formats;
+}
+
+// ============================================================
+// Local profile — chrome.storage.local (BYOK users)
+// ============================================================
+
+export async function readLocalProfile(): Promise<ProfileContent | null> {
+  const result = await chrome.storage.local.get("voice_profile");
+  return result.voice_profile || null;
+}
+
+export async function saveLocalProfile(profile: ProfileContent): Promise<void> {
+  await chrome.storage.local.set({ voice_profile: profile });
+}
+
+export async function readProfileContent(): Promise<ProfileContent> {
+  const settings = await getSettings();
+
+  if (settings.inference_mode === "noren_pro" && settings.noren_pro_logged_in) {
+    try {
+      return await apiJson<ProfileContent>("/profile/voice/content");
+    } catch {
+      // Fall through to local
+    }
+  }
+
+  const local = await readLocalProfile();
+  return local || { core_identity: "", contexts: {} };
+}
+
+export async function saveProfileEdit(params: {
+  coreIdentity: string;
+  contextFormat?: string;
+  contextContent?: string;
+}): Promise<void> {
+  const settings = await getSettings();
+
+  if (settings.inference_mode === "noren_pro" && settings.noren_pro_logged_in) {
+    await apiJson("/profile/voice/edit", {
+      method: "POST",
+      body: JSON.stringify({
+        core_identity: params.coreIdentity,
+        context_format: params.contextFormat,
+        context_content: params.contextContent,
+      }),
+    });
+    return;
+  }
+
+  // BYOK — save locally
+  const existing = await readLocalProfile() || { core_identity: "", contexts: {} };
+  existing.core_identity = params.coreIdentity;
+  if (params.contextFormat && params.contextContent !== undefined) {
+    existing.contexts[params.contextFormat] = params.contextContent;
+  }
+  await saveLocalProfile(existing);
+}
+
+/** Get the voice profile text for injection into system prompts */
+export async function getVoiceProfileText(format?: string): Promise<string | null> {
+  const settings = await getSettings();
+
+  // Pro users: server handles profile injection, no need to add it client-side
+  if (settings.inference_mode === "noren_pro" && settings.noren_pro_logged_in) {
+    return null;
+  }
+
+  const profile = await readLocalProfile();
+  if (!profile || !profile.core_identity.trim()) return null;
+
+  let text = profile.core_identity;
+  if (format && format !== "general" && profile.contexts[format]) {
+    text += `\n\n[Context for ${format}]:\n${profile.contexts[format]}`;
+  }
+  return text;
 }
 
 // ============================================================
