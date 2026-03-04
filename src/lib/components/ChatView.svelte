@@ -42,7 +42,12 @@
   let showHistory = $state(false);
 
   // --- Init ---
+  let initDone = false;
+
   $effect(() => {
+    if (initDone) return;
+    initDone = true;
+
     getProfileOverview().then((overview) => {
       let f = overview.formats;
       if (!f.includes("general")) {
@@ -73,18 +78,24 @@
       const result = await chrome.storage.local.get("active_chat_id");
       const id = result.active_chat_id;
       if (id) {
-        const conv = await loadChat(id);
-        conversationId = conv.id;
-        conversationCreatedAt = conv.created_at;
-        format = conv.format;
-        totalTokens = conv.total_tokens;
-        messages = conv.messages;
-        scrollToBottom();
+        await applyLoadedChat(id);
       }
     } catch {
-      // Chat was deleted or doesn't exist — start fresh
       await chrome.storage.local.remove("active_chat_id");
     }
+  }
+
+  /** Load a chat from storage and apply it to state */
+  async function applyLoadedChat(id: string) {
+    const conv = await loadChat(id);
+    // Deep-clone to strip any proxy/storage artifacts
+    const msgs: ChatMessage[] = JSON.parse(JSON.stringify(conv.messages || []));
+    conversationId = conv.id;
+    conversationCreatedAt = conv.created_at;
+    format = conv.format || "general";
+    totalTokens = conv.total_tokens || 0;
+    messages = msgs;
+    scrollToBottom();
   }
 
   /** Save the active conversation ID so it persists across popup reopens */
@@ -203,14 +214,16 @@
     }
 
     try {
+      // Deep-clone to strip Svelte 5 reactive proxies before Chrome storage serialization
+      const plainMessages: ChatMessage[] = JSON.parse(JSON.stringify(messages));
       await saveChat({
         id: conversationId,
-        title: generateTitle(messages[0].content),
+        title: generateTitle(plainMessages[0].content),
         format,
         created_at: conversationCreatedAt!,
         updated_at: nowISO(),
         total_tokens: totalTokens,
-        messages,
+        messages: plainMessages,
       });
       await setActiveChatId(conversationId);
       await refreshHistory();
@@ -264,15 +277,9 @@
 
   async function handleLoadChat(id: string) {
     try {
-      const conv = await loadChat(id);
-      conversationId = conv.id;
-      conversationCreatedAt = conv.created_at;
-      format = conv.format;
-      totalTokens = conv.total_tokens;
-      messages = conv.messages;
+      await applyLoadedChat(id);
       showHistory = false;
-      scrollToBottom();
-      await setActiveChatId(conv.id);
+      await setActiveChatId(id);
     } catch (e) {
       error = friendlyError(e);
     }
