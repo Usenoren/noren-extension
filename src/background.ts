@@ -9,17 +9,20 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
-// Handle context menu click — store selected text, open popup
+// Handle context menu click — store selected text, open popup window
 chrome.contextMenus.onClicked.addListener(async (info) => {
   if (info.menuItemId === "noren-weave" && info.selectionText) {
     await chrome.storage.session.set({ context_text: info.selectionText });
-    // Opening popup programmatically isn't supported in MV3,
-    // but we can badge the icon to hint the user
-    chrome.action.setBadgeText({ text: "!" });
-    chrome.action.setBadgeBackgroundColor({ color: "#3B6B8A" });
-    setTimeout(() => {
-      chrome.action.setBadgeText({ text: "" });
-    }, 5000);
+
+    // Open popup.html in a standalone window (MV3 can't open the popup programmatically)
+    const popupURL = chrome.runtime.getURL("popup.html?source=context-menu");
+    chrome.windows.create({
+      url: popupURL,
+      type: "popup",
+      width: 440,
+      height: 580,
+      focused: true,
+    });
   }
 });
 

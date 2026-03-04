@@ -845,6 +845,16 @@ export async function testConnection(key?: string): Promise<string> {
 // ============================================================
 
 export async function getContextText(): Promise<string | null> {
+  // 1. Check if text was stored by the context menu handler
+  try {
+    const stored = await chrome.storage.session.get("context_text");
+    if (stored.context_text) {
+      await chrome.storage.session.remove("context_text");
+      return stored.context_text;
+    }
+  } catch { /* session storage may not be available */ }
+
+  // 2. Fall back to querying the active tab's selection
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) return null;
