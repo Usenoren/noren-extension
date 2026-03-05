@@ -5,10 +5,12 @@
   import ChatView from "$lib/components/ChatView.svelte";
   import ProfileView from "$lib/components/ProfileView.svelte";
   import SettingsView from "$lib/components/SettingsView.svelte";
+  import OnboardingView from "$lib/components/OnboardingView.svelte";
 
   type View = "generate" | "chat" | "profile" | "settings";
   let view: View = $state("generate");
   let loading = $state(true);
+  let showOnboarding = $state(false);
 
   const navItems: { id: View; label: string; icon: string }[] = [
     { id: "generate", label: "Weave", icon: "pen" },
@@ -18,29 +20,46 @@
   ];
 
   $effect(() => {
-    getSettings().then((settings) => {
-      if (
-        settings.inference_mode === "byok" &&
-        !settings.has_key &&
-        settings.provider.requiresKey
-      ) {
-        view = "settings";
+    chrome.storage.local.get("onboarding_complete").then(({ onboarding_complete }) => {
+      if (!onboarding_complete) {
+        showOnboarding = true;
+        loading = false;
+        return;
       }
-      loading = false;
+      return getSettings().then((settings) => {
+        if (
+          settings.inference_mode === "byok" &&
+          !settings.has_key &&
+          settings.provider.requiresKey
+        ) {
+          view = "settings";
+        }
 
-      if (settings.noren_pro_logged_in) {
-        refreshSubscription();
-      }
+        if (settings.noren_pro_logged_in) {
+          refreshSubscription();
+        }
+        loading = false;
+      });
     }).catch(() => {
       loading = false;
     });
   });
+
+  function handleOnboardingComplete(tab: "generate" | "settings") {
+    showOnboarding = false;
+    view = tab;
+    if (tab === "generate") {
+      refreshSubscription();
+    }
+  }
 </script>
 
 {#if loading}
   <div class="flex items-center justify-center h-screen bg-background">
     <span class="text-sm text-muted">Loading...</span>
   </div>
+{:else if showOnboarding}
+  <OnboardingView oncomplete={handleOnboardingComplete} />
 {:else}
 <div class="flex flex-col h-screen overflow-hidden bg-background">
   <!-- Tab bar -->

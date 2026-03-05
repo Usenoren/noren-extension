@@ -125,9 +125,10 @@ async function clearTokens(): Promise<void> {
   await chrome.storage.local.remove(["auth_token", "refresh_token"]);
 }
 
-async function getApiKey(): Promise<string | null> {
-  const result = await chrome.storage.local.get("api_key");
-  return result.api_key?.trim() || null;
+async function getApiKey(providerName?: string): Promise<string | null> {
+  const key = providerName ? `api_key_${providerName}` : "api_key";
+  const result = await chrome.storage.local.get(key);
+  return result[key]?.trim() || null;
 }
 
 // ============================================================
@@ -135,6 +136,10 @@ async function getApiKey(): Promise<string | null> {
 // ============================================================
 
 async function bgFetch(url: string, init?: RequestInit): Promise<Response> {
+  // If we're already in the service worker, fetch directly
+  if (typeof ServiceWorkerGlobalScope !== "undefined" && self instanceof ServiceWorkerGlobalScope) {
+    return fetch(url, init);
+  }
   const result = await chrome.runtime.sendMessage({
     type: "proxy-fetch",
     url,
@@ -227,13 +232,6 @@ const PROVIDER_PRESETS: Record<string, ProviderConfig> = {
     model: "gemma3:1b",
     requiresKey: false,
   },
-  "claude-code": {
-    name: "claude-code",
-    type: "anthropic",
-    baseUrl: "http://127.0.0.1:19280",
-    model: "claude-sonnet-4-6",
-    requiresKey: false,
-  },
   "claude-token": {
     name: "claude-token",
     type: "anthropic",
@@ -253,9 +251,8 @@ export async function getSettings(): Promise<SettingsInfo> {
     "inference_mode",
   ]);
   const token = await getAuthToken();
-  const apiKey = await getApiKey();
-
   const providerName = data.provider_name || "anthropic";
+  const apiKey = await getApiKey(providerName);
   const preset = PROVIDER_PRESETS[providerName];
 
   return {
@@ -311,7 +308,7 @@ export async function listClaudeModels(): Promise<{ id: string; name: string }[]
     const isClaudeToken = settings.provider.name === "claude-token";
     const headers: Record<string, string> = { "anthropic-version": "2023-06-01" };
     if (settings.provider.requiresKey) {
-      const apiKey = await getApiKey();
+      const apiKey = await getApiKey(settings.provider.name);
       if (apiKey) {
         if (isClaudeToken) {
           headers["Authorization"] = `Bearer ${apiKey}`;
@@ -354,11 +351,15 @@ export async function listOllamaModels(baseUrl?: string): Promise<string[]> {
 }
 
 export async function saveApiKey(key: string): Promise<void> {
-  await chrome.storage.local.set({ api_key: key });
+  const data = await chrome.storage.local.get("provider_name");
+  const provider = data.provider_name || "anthropic";
+  await chrome.storage.local.set({ [`api_key_${provider}`]: key });
 }
 
 export async function removeApiKey(): Promise<void> {
-  await chrome.storage.local.remove("api_key");
+  const data = await chrome.storage.local.get("provider_name");
+  const provider = data.provider_name || "anthropic";
+  await chrome.storage.local.remove(`api_key_${provider}`);
 }
 
 export async function updateModel(model: string): Promise<void> {
@@ -386,7 +387,7 @@ async function byokGenerate(params: {
   systemPrompt?: string;
 }): Promise<GenerateResult> {
   const settings = await getSettings();
-  const apiKey = await getApiKey();
+  const apiKey = await getApiKey(settings.provider.name);
 
   // Build system message with voice profile context
   let system = params.systemPrompt || "You are a helpful writing assistant. Match the user's voice and style.";
@@ -525,7 +526,7 @@ async function byokChat(
   attachments?: string[],
 ): Promise<GenerateResult> {
   const settings = await getSettings();
-  const apiKey = await getApiKey();
+  const apiKey = await getApiKey(settings.provider.name);
 
   let system = "You are a helpful writing assistant. Match the user's voice and style.";
 
@@ -574,8 +575,8 @@ async function byokChat(
     if (thinking.enabled) {
       chatBody.thinking = { type: "enabled", budget_tokens: thinking.budget };
     }
-    const doFetch = isClaudeToken ? bgFetch : fetch;
-    const res = await doFetch(`${settings.provider.baseUrl}/v1/messages`, {
+    const doChatFetch = isClaudeToken ? bgFetch : fetch;
+    const res = await doChatFetch(`${settings.provider.baseUrl}/v1/messages`, {
       method: "POST",
       headers: chatHeaders,
       body: JSON.stringify(chatBody),
@@ -926,7 +927,7 @@ export async function googleOAuthPoll(sessionId: string): Promise<GoogleOAuthPol
 
 export async function testConnection(key?: string): Promise<string> {
   const settings = await getSettings();
-  const testKey = key || await getApiKey();
+  const testKey = key || await getApiKey(settings.provider.name);
 
   // Quick test: send a minimal request to the provider
   const testPrompt = "Say 'hello' in one word.";

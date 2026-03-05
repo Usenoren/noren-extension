@@ -28,7 +28,6 @@
 
   const presets = [
     { id: "claude-token", label: "Claude Token" },
-    { id: "claude-code", label: "Claude Proxy" },
     { id: "anthropic", label: "Anthropic" },
     { id: "openai", label: "OpenAI" },
     { id: "gemini", label: "Gemini" },
@@ -65,10 +64,8 @@
   let requiresKey = $derived(settings?.provider.requiresKey ?? true);
   let isCustom = $derived(selectedPreset === "custom");
   let isOllama = $derived(selectedPreset === "ollama");
-  let isClaudeCode = $derived(selectedPreset === "claude-code");
   let isClaudeToken = $derived(selectedPreset === "claude-token");
-  let isAnthropicType = $derived(selectedPreset === "claude-code" || selectedPreset === "claude-token" || selectedPreset === "anthropic");
-  let claudeProxyOnline = $state(false);
+  let isAnthropicType = $derived(selectedPreset === "claude-token" || selectedPreset === "anthropic");
   let extendedThinking = $state(false);
   let thinkingBudget = $state(10000);
   let showProSection = $state(false);
@@ -100,10 +97,6 @@
 
       if (settings.provider.name === "ollama") {
         fetchOllamaModels(settings.provider.baseUrl);
-      }
-      if (settings.provider.name === "claude-code") {
-        checkClaudeProxy();
-        fetchClaudeModels();
       }
       if (settings.provider.name === "claude-token" && settings.has_key) {
         fetchClaudeModels();
@@ -160,16 +153,6 @@
       claudeModels = [];
     } finally {
       claudeModelsLoading = false;
-    }
-  }
-
-  async function checkClaudeProxy() {
-    try {
-      const res = await fetch("http://127.0.0.1:19280/health");
-      const data = await res.json();
-      claudeProxyOnline = data.status === "ok";
-    } catch {
-      claudeProxyOnline = false;
     }
   }
 
@@ -300,10 +283,6 @@
       // Auto-detect models for Ollama
       if (presetId === "ollama") {
         await fetchOllamaModels();
-      }
-      if (presetId === "claude-code") {
-        await checkClaudeProxy();
-        await fetchClaudeModels();
       }
       if (presetId === "claude-token" || presetId === "anthropic") {
         await fetchClaudeModels();
@@ -769,22 +748,6 @@
                 {isSaving ? "Saving..." : isClaudeToken ? "Save Token" : "Save Key"}
               </button>
             </div>
-          {/if}
-        </div>
-      {:else if isClaudeCode}
-        <div class="p-2 bg-tint border border-border rounded-lg">
-          {#if claudeProxyOnline}
-            <p class="text-xs text-signal">Claude Code proxy connected</p>
-            <p class="text-[10px] text-muted mt-1">Using your Claude Code credentials via local proxy.</p>
-          {:else}
-            <p class="text-xs text-warning">Claude Code proxy not running</p>
-            <p class="text-[10px] text-muted mt-1">The proxy starts automatically on login. Check the log at <code class="bg-surface px-1 py-0.5 rounded text-foreground">/tmp/noren-claude-proxy.log</code></p>
-            <button
-              onclick={checkClaudeProxy}
-              class="mt-2 px-2 py-1 text-[10px] border border-border hover:border-secondary transition-colors cursor-pointer text-muted hover:text-foreground rounded-md"
-            >
-              Retry
-            </button>
           {/if}
         </div>
       {:else}
