@@ -3,7 +3,7 @@
   "name": "Noren",
   "version": "0.1.0",
   "description": "AI writing that sounds like you",
-  "permissions": ["activeTab", "scripting", "storage", "contextMenus", "sidePanel"],
+  "permissions": ["activeTab", "scripting", "storage", "contextMenus", "sidePanel", "declarativeNetRequest"],
   "side_panel": {
     "default_path": "sidepanel.html"
   },

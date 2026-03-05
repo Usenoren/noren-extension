@@ -1,5 +1,35 @@
 // Noren — Chrome extension service worker
 
+import { generate } from "$lib/api/noren";
+
+// Strip Origin header on Anthropic API requests (runs every service worker start)
+chrome.declarativeNetRequest.updateDynamicRules({
+  removeRuleIds: [1],
+  addRules: [
+    {
+      id: 1,
+      priority: 1,
+      action: {
+        type: "modifyHeaders" as chrome.declarativeNetRequest.RuleActionType,
+        requestHeaders: [
+          {
+            header: "Origin",
+            operation: "remove" as chrome.declarativeNetRequest.HeaderOperation,
+          },
+        ],
+      },
+      condition: {
+        urlFilter: "||api.anthropic.com/",
+        resourceTypes: [
+          "xmlhttprequest" as chrome.declarativeNetRequest.ResourceType,
+          "other" as chrome.declarativeNetRequest.ResourceType,
+        ],
+      },
+    },
+  ],
+}).then(() => console.log("[dnr] Origin-strip rule active"))
+  .catch((e) => console.error("[dnr] rule failed:", e));
+
 // Register context menu + side panel behavior on install
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
@@ -53,10 +83,39 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "open-side-panel") {
     chrome.tabs.query({ active: true, currentWindow: true }).then(async ([tab]) => {
       if (tab?.windowId) {
-        await chrome.sidePanel.open({ windowId: tab.windowId });
+        try {
+          await chrome.sidePanel.open({ windowId: tab.windowId });
+        } catch {
+          // sidePanel.open() requires user gesture context which is lost through sendMessage.
+          // Fall back to opening popup in a standalone window.
+          await chrome.windows.create({
+            url: chrome.runtime.getURL("popup.html"),
+            type: "popup",
+            width: 420,
+            height: 640,
+          });
+        }
       }
       sendResponse({ ok: true });
     });
+    return true;
+  }
+
+  // Proxy fetch through background worker to bypass CORS
+  if (message.type === "proxy-fetch") {
+    const { url, init } = message;
+    console.log("[proxy-fetch] URL:", url);
+    console.log("[proxy-fetch] Headers:", JSON.stringify(init?.headers));
+    fetch(url, init)
+      .then((res) => res.text().then((text) => {
+        console.log("[proxy-fetch] Response:", res.status, text.slice(0, 200));
+        return { ok: res.ok, status: res.status, text };
+      }))
+      .then((result) => sendResponse(result))
+      .catch((err) => {
+        console.error("[proxy-fetch] Error:", err);
+        sendResponse({ ok: false, status: 0, text: String(err) });
+      });
     return true;
   }
 
@@ -65,7 +124,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const { action, text } = message;
     const promptFn = QUICK_ACTION_PROMPTS[action] || QUICK_ACTION_PROMPTS.rewrite;
 
-    import("$lib/api/noren").then(async ({ generate }) => {
+    (async () => {
       try {
         const result = await generate({
           prompt: promptFn(text),
@@ -76,7 +135,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       } catch (e) {
         sendResponse({ error: String(e) });
       }
-    });
+    })();
     return true;
   }
 });
