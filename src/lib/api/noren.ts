@@ -127,7 +127,23 @@ async function clearTokens(): Promise<void> {
 
 async function getApiKey(): Promise<string | null> {
   const result = await chrome.storage.local.get("api_key");
-  return result.api_key || null;
+  return result.api_key?.trim() || null;
+}
+
+// ============================================================
+// Background worker fetch — bypasses CORS for claude-token
+// ============================================================
+
+async function bgFetch(url: string, init?: RequestInit): Promise<Response> {
+  const result = await chrome.runtime.sendMessage({
+    type: "proxy-fetch",
+    url,
+    init: { method: init?.method, headers: init?.headers, body: init?.body },
+  });
+  return new Response(result.text, {
+    status: result.status,
+    statusText: result.ok ? "OK" : "Error",
+  });
 }
 
 // ============================================================
@@ -187,7 +203,7 @@ const PROVIDER_PRESETS: Record<string, ProviderConfig> = {
     name: "anthropic",
     type: "anthropic",
     baseUrl: "https://api.anthropic.com",
-    model: "claude-sonnet-4-20250514",
+    model: "claude-sonnet-4-6",
     requiresKey: true,
   },
   openai: {
@@ -210,6 +226,20 @@ const PROVIDER_PRESETS: Record<string, ProviderConfig> = {
     baseUrl: "http://localhost:11434/v1",
     model: "gemma3:1b",
     requiresKey: false,
+  },
+  "claude-code": {
+    name: "claude-code",
+    type: "anthropic",
+    baseUrl: "http://127.0.0.1:19280",
+    model: "claude-sonnet-4-6",
+    requiresKey: false,
+  },
+  "claude-token": {
+    name: "claude-token",
+    type: "anthropic",
+    baseUrl: "https://api.anthropic.com",
+    model: "claude-sonnet-4-6",
+    requiresKey: true,
   },
 };
 
@@ -269,6 +299,42 @@ export async function setProvider(provider: {
   }
 
   await chrome.storage.local.set(data);
+}
+
+// ============================================================
+// Claude model discovery
+// ============================================================
+
+export async function listClaudeModels(): Promise<{ id: string; name: string }[]> {
+  const settings = await getSettings();
+  try {
+    const isClaudeToken = settings.provider.name === "claude-token";
+    const headers: Record<string, string> = { "anthropic-version": "2023-06-01" };
+    if (settings.provider.requiresKey) {
+      const apiKey = await getApiKey();
+      if (apiKey) {
+        if (isClaudeToken) {
+          headers["Authorization"] = `Bearer ${apiKey}`;
+          headers["anthropic-beta"] = "oauth-2025-04-20";
+        } else {
+          headers["x-api-key"] = apiKey;
+          headers["anthropic-dangerous-direct-browser-access"] = "true";
+        }
+      }
+    }
+    const doFetch = isClaudeToken ? bgFetch : fetch;
+    const res = await doFetch(`${settings.provider.baseUrl}/v1/models`, { headers });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.data || [])
+      .filter((m: { id: string }) => m.id.startsWith("claude-"))
+      .map((m: { id: string; display_name?: string }) => ({
+        id: m.id,
+        name: m.display_name || m.id,
+      }));
+  } catch {
+    return [];
+  }
 }
 
 // ============================================================
@@ -353,26 +419,52 @@ async function byokGenerate(params: {
   return byokOpenAI(settings.provider, apiKey, system, userContent);
 }
 
+async function getThinkingSettings(): Promise<{ enabled: boolean; budget: number }> {
+  const data = await chrome.storage.local.get(["extended_thinking", "thinking_budget"]);
+  return {
+    enabled: data.extended_thinking ?? false,
+    budget: data.thinking_budget ?? 10000,
+  };
+}
+
 async function byokAnthropic(
   provider: ProviderConfig,
   apiKey: string | null,
   system: string,
   userContent: string,
 ): Promise<GenerateResult> {
-  const res = await fetch(`${provider.baseUrl}/v1/messages`, {
+  const thinking = await getThinkingSettings();
+  const isClaudeToken = provider.name === "claude-token";
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "anthropic-version": "2023-06-01",
+  };
+  if (apiKey) {
+    if (isClaudeToken) {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+      headers["anthropic-beta"] = "oauth-2025-04-20";
+    } else {
+      headers["x-api-key"] = apiKey;
+      headers["anthropic-dangerous-direct-browser-access"] = "true";
+    }
+  }
+
+  const body: Record<string, unknown> = {
+    model: provider.model,
+    max_tokens: thinking.enabled ? thinking.budget + 4096 : 4096,
+    system,
+    messages: [{ role: "user", content: userContent }],
+  };
+
+  if (thinking.enabled) {
+    body.thinking = { type: "enabled", budget_tokens: thinking.budget };
+  }
+
+  const doFetch = isClaudeToken ? bgFetch : fetch;
+  const res = await doFetch(`${provider.baseUrl}/v1/messages`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey || "",
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
-    body: JSON.stringify({
-      model: provider.model,
-      max_tokens: 4096,
-      system,
-      messages: [{ role: "user", content: userContent }],
-    }),
+    headers,
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
@@ -381,8 +473,10 @@ async function byokAnthropic(
   }
 
   const data = await res.json();
+  // With thinking enabled, the text block comes after the thinking block
+  const textBlock = data.content?.find((b: { type: string }) => b.type === "text");
   return {
-    text: data.content?.[0]?.text || "",
+    text: textBlock?.text || "",
     input_tokens: data.usage?.input_tokens || 0,
     output_tokens: data.usage?.output_tokens || 0,
   };
@@ -456,25 +550,41 @@ async function byokChat(
   });
 
   if (settings.provider.type === "anthropic") {
-    const res = await fetch(`${settings.provider.baseUrl}/v1/messages`, {
+    const thinking = await getThinkingSettings();
+    const isClaudeToken = settings.provider.name === "claude-token";
+    const chatHeaders: Record<string, string> = {
+      "Content-Type": "application/json",
+      "anthropic-version": "2023-06-01",
+    };
+    if (apiKey) {
+      if (isClaudeToken) {
+        chatHeaders["Authorization"] = `Bearer ${apiKey}`;
+        chatHeaders["anthropic-beta"] = "oauth-2025-04-20";
+      } else {
+        chatHeaders["x-api-key"] = apiKey;
+        chatHeaders["anthropic-dangerous-direct-browser-access"] = "true";
+      }
+    }
+    const chatBody: Record<string, unknown> = {
+      model: settings.provider.model,
+      max_tokens: thinking.enabled ? thinking.budget + 4096 : 4096,
+      system,
+      messages: processed,
+    };
+    if (thinking.enabled) {
+      chatBody.thinking = { type: "enabled", budget_tokens: thinking.budget };
+    }
+    const doFetch = isClaudeToken ? bgFetch : fetch;
+    const res = await doFetch(`${settings.provider.baseUrl}/v1/messages`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey || "",
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify({
-        model: settings.provider.model,
-        max_tokens: 4096,
-        system,
-        messages: processed,
-      }),
+      headers: chatHeaders,
+      body: JSON.stringify(chatBody),
     });
     if (!res.ok) throw new Error(await res.text() || `Anthropic HTTP ${res.status}`);
     const data = await res.json();
+    const textBlock = data.content?.find((b: { type: string }) => b.type === "text");
     return {
-      text: data.content?.[0]?.text || "",
+      text: textBlock?.text || "",
       input_tokens: data.usage?.input_tokens || 0,
       output_tokens: data.usage?.output_tokens || 0,
     };
