@@ -1,3 +1,6 @@
+import { keychainGet, keychainStore, keychainDelete, isKeychainAvailable } from "./keychain";
+export { isKeychainAvailable } from "./keychain";
+
 const API_BASE = "https://api.noren.ink/v1";
 
 // ============================================================
@@ -126,6 +129,12 @@ async function clearTokens(): Promise<void> {
 }
 
 async function getApiKey(providerName?: string): Promise<string | null> {
+  // Try keychain first (OS-level secure storage)
+  if (providerName) {
+    const keychainKey = await keychainGet(providerName);
+    if (keychainKey) return keychainKey;
+  }
+  // Fall back to chrome.storage.local
   const key = providerName ? `api_key_${providerName}` : "api_key";
   const result = await chrome.storage.local.get(key);
   return result[key]?.trim() || null;
@@ -353,12 +362,21 @@ export async function listOllamaModels(baseUrl?: string): Promise<string[]> {
 export async function saveApiKey(key: string): Promise<void> {
   const data = await chrome.storage.local.get("provider_name");
   const provider = data.provider_name || "anthropic";
-  await chrome.storage.local.set({ [`api_key_${provider}`]: key });
+  // Try keychain first, fall back to local storage
+  const stored = await keychainStore(provider, key);
+  if (stored) {
+    // Remove from local storage if keychain succeeded (migrate)
+    await chrome.storage.local.remove(`api_key_${provider}`);
+  } else {
+    await chrome.storage.local.set({ [`api_key_${provider}`]: key });
+  }
 }
 
 export async function removeApiKey(): Promise<void> {
   const data = await chrome.storage.local.get("provider_name");
   const provider = data.provider_name || "anthropic";
+  // Remove from both locations
+  await keychainDelete(provider);
   await chrome.storage.local.remove(`api_key_${provider}`);
 }
 

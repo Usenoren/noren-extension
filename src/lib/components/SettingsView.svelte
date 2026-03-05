@@ -22,6 +22,7 @@
     type SettingsInfo,
     type NorenProStatus,
     type SubscriptionStatus,
+  isKeychainAvailable,
   } from "$lib/api/noren";
   import { friendlyError } from "$lib/utils/errors";
   import LoadingSpinner from "./LoadingSpinner.svelte";
@@ -69,6 +70,7 @@
   let extendedThinking = $state(false);
   let thinkingBudget = $state(10000);
   let showProSection = $state(false);
+  let keychainActive = $state(false);
 
   // Dynamic Claude model list
   let claudeModels = $state<{ id: string; label: string }[]>([]);
@@ -85,6 +87,7 @@
   async function loadSettings() {
     try {
       settings = await getSettings();
+      keychainActive = await isKeychainAvailable();
       selectedPreset = settings.provider.name;
       modelInput = settings.provider.model;
       baseUrlInput = settings.provider.baseUrl;
@@ -695,7 +698,13 @@
             <span class="text-xs font-medium text-muted uppercase tracking-wide">
               {isClaudeToken ? "Setup Token" : "API Key"}
               <span class="ml-1.5 text-[10px] font-normal normal-case tracking-normal {settings.has_key ? 'text-signal' : 'text-muted'}">
-                {settings.has_key ? "Stored" : "Not set"}
+                {#if settings.has_key && keychainActive}
+                  Keychain
+                {:else if settings.has_key}
+                  Stored
+                {:else}
+                  Not set
+                {/if}
               </span>
             </span>
             {#if settings.has_key}
@@ -794,7 +803,11 @@
         {#if showProSection}
           Noren Pro handles inference on our servers. No API key needed. Usage resets monthly.
         {:else}
-          API keys are stored in browser local storage.
+          {#if keychainActive}
+            API keys are secured in your macOS Keychain via the Noren desktop app.
+          {:else}
+            API keys are stored in browser local storage. Install the <strong>Noren desktop app</strong> for Keychain-level security.
+          {/if}
           Any OpenAI-compatible provider works — Groq, Together, Mistral, OpenRouter, LM Studio, and more.
         {/if}
       </p>
