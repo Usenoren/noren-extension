@@ -1,4 +1,16 @@
-// Noren — Content script for text capture and injection
+// Noren — Content script: text capture, injection, floating button, selection toolbar
+
+import { createShadowMount, type ShadowMountResult } from "$lib/content/shadow-mount";
+import FloatingButton from "$lib/content/FloatingButton.svelte";
+import SelectionToolbar from "$lib/content/SelectionToolbar.svelte";
+// @ts-ignore — Vite ?inline import returns a string
+import floatingCss from "$lib/content/floating-button.css?inline";
+// @ts-ignore
+import toolbarCss from "$lib/content/selection-toolbar.css?inline";
+
+// ============================================================
+// Message listener (existing functionality)
+// ============================================================
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "get-selection") {
@@ -9,25 +21,297 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message.type === "inject-text") {
     const text = message.text as string;
-    const el = document.activeElement;
-
-    if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
-      // For standard form elements
-      el.focus();
-      el.value = text;
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-      el.dispatchEvent(new Event("change", { bubbles: true }));
-    } else if (el?.getAttribute("contenteditable") === "true") {
-      // For contenteditable elements (Gmail compose, etc.)
-      el.focus();
-      document.execCommand("selectAll", false);
-      document.execCommand("insertText", false, text);
-    } else {
-      // Fallback: try execCommand on whatever is focused
-      document.execCommand("insertText", false, text);
-    }
-
+    injectText(text);
     sendResponse({ success: true });
     return;
   }
 });
+
+function injectText(text: string) {
+  const el = document.activeElement;
+
+  if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
+    el.focus();
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? el.value.length;
+    el.value = el.value.slice(0, start) + text + el.value.slice(end);
+    el.selectionStart = el.selectionEnd = start + text.length;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  } else if (el?.getAttribute("contenteditable") === "true") {
+    el.focus();
+    document.execCommand("insertText", false, text);
+  } else {
+    document.execCommand("insertText", false, text);
+  }
+}
+
+// ============================================================
+// Floating Button — appears on text field focus
+// ============================================================
+
+let floatingMount: ShadowMountResult | null = null;
+let hideTimeout: ReturnType<typeof setTimeout> | null = null;
+let currentField: Element | null = null;
+
+function isTextField(el: Element): boolean {
+  if (el instanceof HTMLTextAreaElement) return true;
+  if (el instanceof HTMLInputElement) {
+    const type = el.type.toLowerCase();
+    return ["text", "search", "email", "url", ""].includes(type);
+  }
+  if (el.getAttribute("contenteditable") === "true") return true;
+  if (el.getAttribute("role") === "textbox") return true;
+  return false;
+}
+
+document.addEventListener("focusin", (e) => {
+  const target = e.target as Element;
+  if (!isTextField(target)) return;
+
+  // Don't show on tiny inputs (like search bars)
+  const rect = target.getBoundingClientRect();
+  if (rect.width < 100 || rect.height < 30) return;
+
+  if (hideTimeout) {
+    clearTimeout(hideTimeout);
+    hideTimeout = null;
+  }
+
+  currentField = target;
+  showFloatingButton(rect.right - 36, rect.top + 4);
+}, true);
+
+document.addEventListener("focusout", () => {
+  hideTimeout = setTimeout(() => {
+    dismissFloatingButton();
+  }, 200);
+}, true);
+
+// Reposition on scroll while field is focused
+let scrollTick = false;
+document.addEventListener("scroll", () => {
+  if (!currentField || !floatingMount) return;
+  if (scrollTick) return;
+  scrollTick = true;
+  requestAnimationFrame(() => {
+    scrollTick = false;
+    if (!currentField || !floatingMount) return;
+    const rect = currentField.getBoundingClientRect();
+    // Hide if scrolled out of view
+    if (rect.bottom < 0 || rect.top > window.innerHeight) {
+      dismissFloatingButton();
+      return;
+    }
+    // Reposition
+    dismissFloatingButton();
+    showFloatingButton(rect.right - 36, rect.top + 4);
+  });
+}, true);
+
+function showFloatingButton(x: number, y: number) {
+  dismissFloatingButton();
+
+  // Clamp to viewport
+  const cx = Math.max(4, Math.min(x, window.innerWidth - 32));
+  const cy = Math.max(4, Math.min(y, window.innerHeight - 32));
+
+  floatingMount = createShadowMount(
+    FloatingButton as any,
+    { x: cx, y: cy, onAction: handleFloatingAction },
+    floatingCss,
+    "noren-floating-button",
+  );
+  document.body.appendChild(floatingMount.host);
+}
+
+function dismissFloatingButton() {
+  if (floatingMount) {
+    floatingMount.destroy();
+    floatingMount = null;
+  }
+}
+
+function handleFloatingAction(action: string) {
+  if (action === "open-sidepanel") {
+    chrome.runtime.sendMessage({ type: "open-side-panel" });
+    dismissFloatingButton();
+  }
+}
+
+// ============================================================
+// Selection Toolbar — appears on text selection
+// ============================================================
+
+let toolbarMount: ShadowMountResult | null = null;
+let toolbarLoading = false;
+
+document.addEventListener("mouseup", () => {
+  // Small delay for selection to finalize
+  setTimeout(() => {
+    const selection = window.getSelection();
+    const text = selection?.toString().trim();
+
+    if (!text || text.length < 3) {
+      dismissToolbar();
+      return;
+    }
+
+    // Don't show if selection is inside our own shadow DOM
+    const anchor = selection?.anchorNode;
+    if (anchor && isInsideNorenUI(anchor)) return;
+
+    const range = selection!.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+
+    showToolbar(rect.left + rect.width / 2, rect.top, text);
+  }, 10);
+});
+
+document.addEventListener("mousedown", (e) => {
+  if (toolbarMount && !toolbarMount.host.contains(e.target as Node)) {
+    dismissToolbar();
+  }
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") dismissToolbar();
+});
+
+function isInsideNorenUI(node: Node): boolean {
+  let current: Node | null = node;
+  while (current) {
+    if (current instanceof HTMLElement && current.tagName.toLowerCase().startsWith("noren-")) {
+      return true;
+    }
+    current = current.parentNode;
+  }
+  return false;
+}
+
+function showToolbar(x: number, y: number, selectedText: string) {
+  dismissToolbar();
+  toolbarLoading = false;
+
+  // Clamp x to viewport
+  const cx = Math.max(120, Math.min(x, window.innerWidth - 120));
+
+  toolbarMount = createShadowMount(
+    SelectionToolbar as any,
+    {
+      x: cx,
+      y,
+      loading: toolbarLoading,
+      onAction: (action: string) => handleQuickAction(action, selectedText),
+    },
+    toolbarCss,
+    "noren-selection-toolbar",
+  );
+  document.body.appendChild(toolbarMount.host);
+}
+
+function dismissToolbar() {
+  if (toolbarMount) {
+    toolbarMount.destroy();
+    toolbarMount = null;
+  }
+  toolbarLoading = false;
+}
+
+async function handleQuickAction(action: string, text: string) {
+  // Show loading state — recreate toolbar with loading=true
+  const currentToolbar = toolbarMount;
+  if (currentToolbar) {
+    const host = currentToolbar.host;
+    const rect = host.getBoundingClientRect();
+    currentToolbar.destroy();
+    toolbarMount = null;
+
+    // Recalculate position from the stored selection
+    const sel = window.getSelection();
+    let tx = rect.left, ty = rect.top;
+    if (sel && sel.rangeCount > 0) {
+      const r = sel.getRangeAt(0).getBoundingClientRect();
+      tx = r.left + r.width / 2;
+      ty = r.top;
+    }
+
+    toolbarMount = createShadowMount(
+      SelectionToolbar as any,
+      { x: Math.max(120, Math.min(tx, window.innerWidth - 120)), y: ty, loading: true, onAction: () => {} },
+      toolbarCss,
+      "noren-selection-toolbar",
+    );
+    document.body.appendChild(toolbarMount.host);
+  }
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "quick-action",
+      action,
+      text,
+    });
+
+    dismissToolbar();
+
+    if (response?.result) {
+      // Check if we're in an editable field — inject there
+      const el = document.activeElement;
+      if (
+        el instanceof HTMLTextAreaElement ||
+        el instanceof HTMLInputElement ||
+        el?.getAttribute("contenteditable") === "true"
+      ) {
+        injectText(response.result);
+      } else {
+        // Read-only context — copy to clipboard and show brief notification
+        await navigator.clipboard.writeText(response.result);
+        showCopiedNotification();
+      }
+    } else if (response?.error) {
+      console.error("[Noren] Quick action error:", response.error);
+    }
+  } catch (e) {
+    dismissToolbar();
+    console.error("[Noren] Quick action failed:", e);
+  }
+}
+
+function showCopiedNotification() {
+  const el = document.createElement("noren-notification");
+  el.style.cssText = `
+    all: initial;
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2147483647;
+    padding: 8px 16px;
+    background: #1E3148;
+    color: #E8E3DD;
+    font-family: -apple-system, system-ui, sans-serif;
+    font-size: 13px;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    animation: noren-notif 2s ease-out forwards;
+    pointer-events: none;
+  `;
+  el.textContent = "Copied to clipboard";
+
+  const style = document.createElement("style");
+  style.textContent = `
+    @keyframes noren-notif {
+      0% { opacity: 0; transform: translateX(-50%) translateY(8px); }
+      15% { opacity: 1; transform: translateX(-50%) translateY(0); }
+      75% { opacity: 1; }
+      100% { opacity: 0; }
+    }
+  `;
+  document.head.appendChild(style);
+  document.body.appendChild(el);
+
+  setTimeout(() => {
+    el.remove();
+    style.remove();
+  }, 2100);
+}

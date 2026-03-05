@@ -1,0 +1,61 @@
+.noren-toolbar {
+  position: fixed;
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  background: #1E3148;
+  border: 1px solid rgba(59, 107, 138, 0.3);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+  transform: translateX(-50%) translateY(-100%);
+  margin-top: -8px;
+  animation: noren-fade-in 0.15s ease-out;
+}
+
+.noren-action {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-family: -apple-system, system-ui, "Segoe UI", sans-serif;
+  font-weight: 500;
+  color: #E8E3DD;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.1s;
+  line-height: 1.3;
+}
+
+.noren-action:hover {
+  background: rgba(59, 107, 138, 0.35);
+  color: #fff;
+}
+
+.noren-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  font-size: 12px;
+  font-family: -apple-system, system-ui, "Segoe UI", sans-serif;
+  color: #8EAFC4;
+}
+
+.noren-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(142, 175, 196, 0.3);
+  border-top-color: #8EAFC4;
+  border-radius: 50%;
+  animation: noren-spin 0.6s linear infinite;
+}
+
+@keyframes noren-fade-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(-100%) translateY(4px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(-100%); }
+}
+
+@keyframes noren-spin {
+  to { transform: rotate(360deg); }
+}
