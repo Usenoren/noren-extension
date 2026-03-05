@@ -144,11 +144,18 @@ function handleFloatingAction(action: string) {
 // ============================================================
 
 let toolbarMount: ShadowMountResult | null = null;
-let toolbarLoading = false;
+let processingAction = false;
 
-document.addEventListener("mouseup", () => {
+document.addEventListener("mouseup", (e) => {
+  // Ignore clicks on our own toolbar
+  if (toolbarMount && e.composedPath().includes(toolbarMount.host)) return;
+  // Don't interfere while a quick action is running
+  if (processingAction) return;
+
   // Small delay for selection to finalize
   setTimeout(() => {
+    if (processingAction) return;
+
     const selection = window.getSelection();
     const text = selection?.toString().trim();
 
@@ -169,7 +176,10 @@ document.addEventListener("mouseup", () => {
 });
 
 document.addEventListener("mousedown", (e) => {
-  if (toolbarMount && !toolbarMount.host.contains(e.target as Node)) {
+  if (!toolbarMount) return;
+  if (processingAction) return;
+  const path = e.composedPath();
+  if (!path.includes(toolbarMount.host)) {
     dismissToolbar();
   }
 });
@@ -191,7 +201,6 @@ function isInsideNorenUI(node: Node): boolean {
 
 function showToolbar(x: number, y: number, selectedText: string) {
   dismissToolbar();
-  toolbarLoading = false;
 
   // Clamp x to viewport
   const cx = Math.max(120, Math.min(x, window.innerWidth - 120));
@@ -201,7 +210,7 @@ function showToolbar(x: number, y: number, selectedText: string) {
     {
       x: cx,
       y,
-      loading: toolbarLoading,
+      loading: false,
       onAction: (action: string) => handleQuickAction(action, selectedText),
     },
     toolbarCss,
@@ -215,35 +224,34 @@ function dismissToolbar() {
     toolbarMount.destroy();
     toolbarMount = null;
   }
-  toolbarLoading = false;
+  processingAction = false;
 }
 
 async function handleQuickAction(action: string, text: string) {
+  processingAction = true;
+
   // Show loading state — recreate toolbar with loading=true
-  const currentToolbar = toolbarMount;
-  if (currentToolbar) {
-    const host = currentToolbar.host;
-    const rect = host.getBoundingClientRect();
-    currentToolbar.destroy();
-    toolbarMount = null;
-
-    // Recalculate position from the stored selection
-    const sel = window.getSelection();
-    let tx = rect.left, ty = rect.top;
-    if (sel && sel.rangeCount > 0) {
-      const r = sel.getRangeAt(0).getBoundingClientRect();
-      tx = r.left + r.width / 2;
-      ty = r.top;
-    }
-
-    toolbarMount = createShadowMount(
-      SelectionToolbar as any,
-      { x: Math.max(120, Math.min(tx, window.innerWidth - 120)), y: ty, loading: true, onAction: () => {} },
-      toolbarCss,
-      "noren-selection-toolbar",
-    );
-    document.body.appendChild(toolbarMount.host);
+  const sel = window.getSelection();
+  let tx = window.innerWidth / 2, ty = 100;
+  if (sel && sel.rangeCount > 0) {
+    const r = sel.getRangeAt(0).getBoundingClientRect();
+    tx = r.left + r.width / 2;
+    ty = r.top;
   }
+
+  // Destroy old toolbar, create loading one
+  if (toolbarMount) {
+    toolbarMount.destroy();
+    toolbarMount = null;
+  }
+
+  toolbarMount = createShadowMount(
+    SelectionToolbar as any,
+    { x: Math.max(120, Math.min(tx, window.innerWidth - 120)), y: ty, loading: true, onAction: () => {} },
+    toolbarCss,
+    "noren-selection-toolbar",
+  );
+  document.body.appendChild(toolbarMount.host);
 
   try {
     const response = await chrome.runtime.sendMessage({
@@ -264,11 +272,12 @@ async function handleQuickAction(action: string, text: string) {
       ) {
         injectText(response.result);
       } else {
-        // Read-only context — copy to clipboard and show brief notification
+        // Read-only context — copy to clipboard
         await navigator.clipboard.writeText(response.result);
         showCopiedNotification();
       }
     } else if (response?.error) {
+      dismissToolbar();
       console.error("[Noren] Quick action error:", response.error);
     }
   } catch (e) {
