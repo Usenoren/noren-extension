@@ -1,10 +1,7 @@
 // Noren — Content script: text capture, injection, floating button, selection toolbar
 
 import { createShadowMount, type ShadowMountResult } from "$lib/content/shadow-mount";
-import FloatingButton from "$lib/content/FloatingButton.svelte";
 import SelectionToolbar from "$lib/content/SelectionToolbar.svelte";
-// @ts-ignore — Vite ?inline import returns a string
-import floatingCss from "$lib/content/floating-button.css?inline";
 // @ts-ignore
 import toolbarCss from "$lib/content/selection-toolbar.css?inline";
 
@@ -43,99 +40,6 @@ function injectText(text: string) {
     document.execCommand("insertText", false, text);
   } else {
     document.execCommand("insertText", false, text);
-  }
-}
-
-// ============================================================
-// Floating Button — appears on text field focus
-// ============================================================
-
-let floatingMount: ShadowMountResult | null = null;
-let hideTimeout: ReturnType<typeof setTimeout> | null = null;
-let currentField: Element | null = null;
-
-function isTextField(el: Element): boolean {
-  if (el instanceof HTMLTextAreaElement) return true;
-  if (el instanceof HTMLInputElement) {
-    const type = el.type.toLowerCase();
-    return ["text", "search", "email", "url", ""].includes(type);
-  }
-  if (el.getAttribute("contenteditable") === "true") return true;
-  if (el.getAttribute("role") === "textbox") return true;
-  return false;
-}
-
-document.addEventListener("focusin", (e) => {
-  const target = e.target as Element;
-  if (!isTextField(target)) return;
-
-  // Don't show on tiny inputs (like search bars)
-  const rect = target.getBoundingClientRect();
-  if (rect.width < 100 || rect.height < 30) return;
-
-  if (hideTimeout) {
-    clearTimeout(hideTimeout);
-    hideTimeout = null;
-  }
-
-  currentField = target;
-  showFloatingButton(rect.right - 36, rect.top + 4);
-}, true);
-
-document.addEventListener("focusout", () => {
-  hideTimeout = setTimeout(() => {
-    dismissFloatingButton();
-  }, 200);
-}, true);
-
-// Reposition on scroll while field is focused
-let scrollTick = false;
-document.addEventListener("scroll", () => {
-  if (!currentField || !floatingMount) return;
-  if (scrollTick) return;
-  scrollTick = true;
-  requestAnimationFrame(() => {
-    scrollTick = false;
-    if (!currentField || !floatingMount) return;
-    const rect = currentField.getBoundingClientRect();
-    // Hide if scrolled out of view
-    if (rect.bottom < 0 || rect.top > window.innerHeight) {
-      dismissFloatingButton();
-      return;
-    }
-    // Reposition
-    dismissFloatingButton();
-    showFloatingButton(rect.right - 36, rect.top + 4);
-  });
-}, true);
-
-function showFloatingButton(x: number, y: number) {
-  dismissFloatingButton();
-
-  // Clamp to viewport
-  const cx = Math.max(4, Math.min(x, window.innerWidth - 32));
-  const cy = Math.max(4, Math.min(y, window.innerHeight - 32));
-
-  floatingMount = createShadowMount(
-    FloatingButton as any,
-    { x: cx, y: cy, onAction: handleFloatingAction },
-    floatingCss,
-    "noren-floating-button",
-  );
-  document.body.appendChild(floatingMount.host);
-}
-
-function dismissFloatingButton() {
-  if (floatingMount) {
-    floatingMount.destroy();
-    floatingMount = null;
-  }
-}
-
-function handleFloatingAction(action: string) {
-  if (action === "open-sidepanel") {
-    chrome.runtime.sendMessage({ type: "open-side-panel" });
-    dismissFloatingButton();
   }
 }
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getSettings } from "$lib/api/noren";
+  import { getSettings, getContextText } from "$lib/api/noren";
   import { refresh as refreshSubscription } from "$lib/stores/subscription.svelte";
   import GenerateView from "$lib/components/GenerateView.svelte";
   import ChatView from "$lib/components/ChatView.svelte";
@@ -11,6 +11,7 @@
   let view: View = $state("generate");
   let loading = $state(true);
   let showOnboarding = $state(false);
+  let contextText = $state("");
 
   const navItems: { id: View; label: string; icon: string }[] = [
     { id: "generate", label: "Weave", icon: "pen" },
@@ -26,7 +27,7 @@
         loading = false;
         return;
       }
-      return getSettings().then((settings) => {
+      return getSettings().then(async (settings) => {
         if (
           settings.inference_mode === "byok" &&
           !settings.has_key &&
@@ -34,6 +35,10 @@
         ) {
           view = "settings";
         }
+
+        // Fetch context text once, pass to both views
+        const ctx = await getContextText();
+        if (ctx) contextText = ctx;
 
         if (settings.noren_pro_logged_in) {
           refreshSubscription();
@@ -44,6 +49,10 @@
       loading = false;
     });
   });
+
+  function clearContext() {
+    contextText = "";
+  }
 
   function handleOnboardingComplete(tab: "generate" | "settings") {
     showOnboarding = false;
@@ -97,17 +106,20 @@
     <span class="ml-auto text-[10px] text-muted/50 font-heading tracking-wide">noren</span>
   </nav>
 
-  <!-- Content area -->
-  <div class="flex-1 min-h-0 flex flex-col overflow-hidden">
-    {#if view === "generate"}
-      <GenerateView />
-    {:else if view === "chat"}
-      <ChatView />
-    {:else if view === "profile"}
+  <!-- Content area — all views stay mounted to preserve state -->
+  <div class="flex-1 min-h-0 flex flex-col overflow-hidden relative">
+    <div class="absolute inset-0 flex flex-col overflow-hidden" class:hidden={view !== "generate"}>
+      <GenerateView initialContext={contextText} oncontextused={clearContext} />
+    </div>
+    <div class="absolute inset-0 flex flex-col overflow-hidden" class:hidden={view !== "chat"}>
+      <ChatView initialContext={contextText} oncontextused={clearContext} />
+    </div>
+    <div class="absolute inset-0 flex flex-col overflow-hidden" class:hidden={view !== "profile"}>
       <ProfileView />
-    {:else}
+    </div>
+    <div class="absolute inset-0 flex flex-col overflow-hidden" class:hidden={view !== "settings"}>
       <SettingsView />
-    {/if}
+    </div>
   </div>
 </div>
 {/if}

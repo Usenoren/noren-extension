@@ -21,6 +21,8 @@
     return DOMPurify.sanitize(marked.parse(content) as string);
   }
 
+  let { initialContext = "", oncontextused }: { initialContext?: string; oncontextused?: () => void } = $props();
+
   // --- State ---
   let messages: ChatMessage[] = $state([]);
   let input = $state("");
@@ -69,7 +71,30 @@
     });
 
     refreshHistory();
-    restoreActiveChat();
+    // Skip restoring last chat if we have context text to show
+    if (!initialContext) {
+      restoreActiveChat();
+    }
+  });
+
+  // React to context changes from parent — start a fresh chat
+  let lastAppliedContext = "";
+  $effect(() => {
+    if (initialContext && initialContext !== lastAppliedContext) {
+      // Start a new chat with the context text
+      messages = [];
+      conversationId = null;
+      conversationCreatedAt = null;
+      totalTokens = 0;
+      showHistory = false;
+      input = initialContext;
+      lastAppliedContext = initialContext;
+      setActiveChatId(null);
+    } else if (!initialContext && lastAppliedContext) {
+      // Context was cleared (other view consumed it)
+      if (input === lastAppliedContext) input = "";
+      lastAppliedContext = "";
+    }
   });
 
   /** Restore the last active conversation from storage on popup open */
@@ -235,6 +260,7 @@
   async function handleSend() {
     const text = input.trim();
     if (!text || isLoading) return;
+    oncontextused?.();
 
     const userMessage: ChatMessage = { role: "user", content: text };
     messages = [...messages, userMessage];

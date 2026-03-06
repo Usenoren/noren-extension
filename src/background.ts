@@ -38,19 +38,19 @@ chrome.runtime.onInstalled.addListener(() => {
     contexts: ["selection"],
   });
 
-  // Toolbar icon click opens popup (not side panel).
-  // Side panel is opened explicitly by context menu / floating button / quick actions.
+  // Toolbar icon click opens popup. Side panel opened by context menu.
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
 });
 
 // Handle context menu click — store selected text, open side panel
-chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === "noren-weave" && info.selectionText) {
-    await chrome.storage.session.set({ context_text: info.selectionText });
-
+    // Open side panel first — must be synchronous to preserve user gesture
     if (tab?.windowId) {
-      await chrome.sidePanel.open({ windowId: tab.windowId });
+      chrome.sidePanel.open({ windowId: tab.windowId });
     }
+    // Store selected text (no await — gesture must not be broken)
+    chrome.storage.session.set({ context_text: info.selectionText });
   }
 });
 
@@ -75,28 +75,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     chrome.storage.session.get("context_text").then((result) => {
       sendResponse({ text: result.context_text || null });
       chrome.storage.session.remove("context_text");
-    });
-    return true;
-  }
-
-  // Open side panel from content script (floating button)
-  if (message.type === "open-side-panel") {
-    chrome.tabs.query({ active: true, currentWindow: true }).then(async ([tab]) => {
-      if (tab?.windowId) {
-        try {
-          await chrome.sidePanel.open({ windowId: tab.windowId });
-        } catch {
-          // sidePanel.open() requires user gesture context which is lost through sendMessage.
-          // Fall back to opening popup in a standalone window.
-          await chrome.windows.create({
-            url: chrome.runtime.getURL("popup.html"),
-            type: "popup",
-            width: 420,
-            height: 640,
-          });
-        }
-      }
-      sendResponse({ ok: true });
     });
     return true;
   }

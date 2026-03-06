@@ -1,8 +1,10 @@
 <script lang="ts">
-  import { generate, generateComparison, getContextText, listFormats, injectGeneratedText, getProfileOverview, createCheckout, type GenerateResult, type ComparisonResult } from "$lib/api/noren";
+  import { generate, generateComparison, listFormats, injectGeneratedText, getProfileOverview, createCheckout, type GenerateResult, type ComparisonResult } from "$lib/api/noren";
   import { isFree } from "$lib/stores/subscription.svelte";
   import { friendlyError } from "$lib/utils/errors";
   import LoadingSpinner from "./LoadingSpinner.svelte";
+
+  let { initialContext = "", oncontextused }: { initialContext?: string; oncontextused?: () => void } = $props();
 
   // --- State ---
   let prompt = $state("");
@@ -45,9 +47,15 @@
       }
     });
 
-    getContextText().then((text) => {
-      if (text) contextText = text;
-    });
+  });
+
+  // React to context changes from parent
+  $effect(() => {
+    if (initialContext) {
+      contextText = initialContext;
+    } else {
+      contextText = "";
+    }
   });
 
   // --- Actions ---
@@ -57,6 +65,7 @@
     isGenerating = true;
     error = "";
     output = null;
+    oncontextused?.();
     comparison = null;
 
     try {
