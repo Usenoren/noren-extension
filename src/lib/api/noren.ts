@@ -344,6 +344,86 @@ export async function listClaudeModels(): Promise<{ id: string; name: string }[]
 }
 
 // ============================================================
+// OpenAI model discovery
+// ============================================================
+
+export async function listOpenAIModels(): Promise<{ id: string; name: string }[]> {
+  const settings = await getSettings();
+  const apiKey = await getApiKey(settings.provider.name);
+  if (!apiKey) return [];
+  try {
+    const res = await fetch("https://api.openai.com/v1/models", {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.data || [])
+      .filter((m: { id: string; owned_by?: string }) =>
+        /^(gpt-|o[1-9]|chatgpt-)/.test(m.id) && !m.id.includes("instruct") && !m.id.includes("audio") && !m.id.includes("realtime")
+      )
+      .sort((a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id))
+      .map((m: { id: string }) => ({
+        id: m.id,
+        name: m.id,
+      }));
+  } catch {
+    return [];
+  }
+}
+
+// ============================================================
+// Custom / OpenAI-compatible model discovery
+// ============================================================
+
+export async function listCustomModels(baseUrl: string): Promise<{ id: string; name: string }[]> {
+  const settings = await getSettings();
+  const apiKey = await getApiKey(settings.provider.name);
+  try {
+    const headers: Record<string, string> = {};
+    if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+    const res = await bgFetch(`${baseUrl.replace(/\/+$/, "")}/models`, { headers });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.data || [])
+      .map((m: { id: string; name?: string }) => ({
+        id: m.id,
+        name: m.name || m.id,
+      }))
+      .sort((a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id));
+  } catch {
+    return [];
+  }
+}
+
+// ============================================================
+// Gemini model discovery
+// ============================================================
+
+export async function listGeminiModels(): Promise<{ id: string; name: string }[]> {
+  const settings = await getSettings();
+  const apiKey = await getApiKey(settings.provider.name);
+  if (!apiKey) return [];
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.models || [])
+      .filter((m: { name: string; supportedGenerationMethods?: string[] }) =>
+        m.supportedGenerationMethods?.includes("generateContent") &&
+        m.name.replace("models/", "").startsWith("gemini-")
+      )
+      .map((m: { name: string; displayName: string }) => ({
+        id: m.name.replace("models/", ""),
+        name: m.displayName || m.name.replace("models/", ""),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+// ============================================================
 // Ollama model discovery
 // ============================================================
 
@@ -512,7 +592,9 @@ async function byokOpenAI(
     headers["Authorization"] = `Bearer ${apiKey}`;
   }
 
-  const res = await fetch(`${provider.baseUrl}/chat/completions`, {
+  const isCustom = provider.name === "custom";
+  const doFetch = isCustom ? bgFetch : fetch;
+  const res = await doFetch(`${provider.baseUrl}/chat/completions`, {
     method: "POST",
     headers,
     body: JSON.stringify({
@@ -613,7 +695,9 @@ async function byokChat(
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
 
-  const res = await fetch(`${settings.provider.baseUrl}/chat/completions`, {
+  const isCustomChat = settings.provider.name === "custom";
+  const doChatFetchOAI = isCustomChat ? bgFetch : fetch;
+  const res = await doChatFetchOAI(`${settings.provider.baseUrl}/chat/completions`, {
     method: "POST",
     headers,
     body: JSON.stringify({

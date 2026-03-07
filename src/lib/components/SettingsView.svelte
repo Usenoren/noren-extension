@@ -19,6 +19,9 @@
     googleOAuthPoll,
     listOllamaModels,
     listClaudeModels,
+    listGeminiModels,
+    listOpenAIModels,
+    listCustomModels,
     type SettingsInfo,
     type NorenProStatus,
     type SubscriptionStatus,
@@ -62,15 +65,30 @@
   let ollamaModels = $state<string[]>([]);
   let ollamaLoading = $state(false);
 
+  // OpenAI model discovery
+  let openaiModels = $state<{ id: string; label: string }[]>([]);
+  let openaiModelsLoading = $state(false);
+
+  // Custom model discovery
+  let customModels = $state<{ id: string; label: string }[]>([]);
+  let customModelsLoading = $state(false);
+
+  // Gemini model discovery
+  let geminiModels = $state<{ id: string; label: string }[]>([]);
+  let geminiModelsLoading = $state(false);
+
   let requiresKey = $derived(settings?.provider.requiresKey ?? true);
   let isCustom = $derived(selectedPreset === "custom");
   let isOllama = $derived(selectedPreset === "ollama");
   let isClaudeToken = $derived(selectedPreset === "claude-token");
   let isAnthropicType = $derived(selectedPreset === "claude-token" || selectedPreset === "anthropic");
+  let isGemini = $derived(selectedPreset === "gemini");
+  let isOpenAI = $derived(selectedPreset === "openai");
   let extendedThinking = $state(false);
   let thinkingBudget = $state(10000);
   let showProSection = $state(false);
   let keychainActive = $state(false);
+  let clickOpensSidepanel = $state(true);
 
   // Dynamic Claude model list
   let claudeModels = $state<{ id: string; label: string }[]>([]);
@@ -94,9 +112,10 @@
       showProSection = settings.inference_mode === "noren_pro";
 
       // Load thinking settings
-      const thinkingData = await chrome.storage.local.get(["extended_thinking", "thinking_budget"]);
+      const thinkingData = await chrome.storage.local.get(["extended_thinking", "thinking_budget", "click_opens_sidepanel"]);
       extendedThinking = thinkingData.extended_thinking ?? false;
       thinkingBudget = thinkingData.thinking_budget ?? 10000;
+      clickOpensSidepanel = thinkingData.click_opens_sidepanel !== false;
 
       if (settings.provider.name === "ollama") {
         fetchOllamaModels(settings.provider.baseUrl);
@@ -106,6 +125,15 @@
       }
       if (settings.provider.name === "anthropic" && settings.has_key) {
         fetchClaudeModels();
+      }
+      if (settings.provider.name === "gemini" && settings.has_key) {
+        fetchGeminiModels();
+      }
+      if (settings.provider.name === "openai" && settings.has_key) {
+        fetchOpenAIModels();
+      }
+      if (settings.provider.name === "custom" && settings.provider.baseUrl) {
+        fetchCustomModels(settings.provider.baseUrl);
       }
 
       if (settings.noren_pro_logged_in) {
@@ -143,6 +171,11 @@
     await chrome.storage.local.set({ thinking_budget: thinkingBudget });
   }
 
+  async function handleClickBehaviorToggle() {
+    clickOpensSidepanel = !clickOpensSidepanel;
+    await chrome.storage.local.set({ click_opens_sidepanel: clickOpensSidepanel });
+  }
+
   async function fetchClaudeModels() {
     claudeModelsLoading = true;
     try {
@@ -156,6 +189,56 @@
       claudeModels = [];
     } finally {
       claudeModelsLoading = false;
+    }
+  }
+
+  async function fetchCustomModels(baseUrl?: string) {
+    const url = baseUrl || baseUrlInput;
+    if (!url.trim()) return;
+    customModelsLoading = true;
+    try {
+      const models = await listCustomModels(url);
+      customModels = models.map(m => ({ id: m.id, label: m.name }));
+      if (customModels.length > 0 && !customModels.find(m => m.id === modelInput)) {
+        modelInput = customModels[0].id;
+        await updateModel(modelInput);
+      }
+    } catch {
+      customModels = [];
+    } finally {
+      customModelsLoading = false;
+    }
+  }
+
+  async function fetchOpenAIModels() {
+    openaiModelsLoading = true;
+    try {
+      const models = await listOpenAIModels();
+      openaiModels = models.map(m => ({ id: m.id, label: m.name }));
+      if (openaiModels.length > 0 && !openaiModels.find(m => m.id === modelInput)) {
+        modelInput = openaiModels[0].id;
+        await updateModel(modelInput);
+      }
+    } catch {
+      openaiModels = [];
+    } finally {
+      openaiModelsLoading = false;
+    }
+  }
+
+  async function fetchGeminiModels() {
+    geminiModelsLoading = true;
+    try {
+      const models = await listGeminiModels();
+      geminiModels = models.map(m => ({ id: m.id, label: m.name }));
+      if (geminiModels.length > 0 && !geminiModels.find(m => m.id === modelInput)) {
+        modelInput = geminiModels[0].id;
+        await updateModel(modelInput);
+      }
+    } catch {
+      geminiModels = [];
+    } finally {
+      geminiModelsLoading = false;
     }
   }
 
@@ -276,6 +359,9 @@
     if (presetId === "custom") {
       baseUrlInput = "";
       modelInput = "";
+      customModels = [];
+      await setProvider({ name: "custom", requiresKey: true });
+      await loadSettings();
       return;
     }
 
@@ -290,22 +376,29 @@
       if (presetId === "claude-token" || presetId === "anthropic") {
         await fetchClaudeModels();
       }
+      if (presetId === "gemini") {
+        await fetchGeminiModels();
+      }
+      if (presetId === "openai") {
+        await fetchOpenAIModels();
+      }
     } catch (e) {
       error = friendlyError(e);
     }
   }
 
   async function handleSaveCustom() {
-    if (!baseUrlInput.trim() || !modelInput.trim()) return;
+    if (!baseUrlInput.trim()) return;
     error = "";
     try {
       await setProvider({
         name: "custom",
         baseUrl: baseUrlInput.trim(),
-        model: modelInput.trim(),
+        model: modelInput.trim() || "",
         requiresKey: true,
       });
       await loadSettings();
+      await fetchCustomModels(baseUrlInput.trim());
     } catch (e) {
       error = friendlyError(e);
     }
@@ -620,6 +713,78 @@
               Save
             </button>
           </div>
+        {:else if isOpenAI && openaiModelsLoading}
+          <div class="flex items-center gap-2 text-xs text-muted">
+            <LoadingSpinner /> Fetching models...
+          </div>
+        {:else if isOpenAI && openaiModels.length > 0}
+          <select
+            bind:value={modelInput}
+            onchange={handleModelSave}
+            class="w-full px-3 py-1.5 text-xs border border-border bg-surface text-foreground rounded-md focus:outline-none focus:border-secondary"
+          >
+            {#each openaiModels as m}
+              <option value={m.id}>{m.label}</option>
+            {/each}
+          </select>
+        {:else if isOpenAI}
+          <div class="flex gap-2">
+            <input
+              type="text"
+              bind:value={modelInput}
+              class="flex-1 px-3 py-1.5 text-xs border border-border bg-surface text-foreground rounded-md focus:outline-none focus:border-secondary"
+              placeholder="gpt-4o"
+            />
+            <button
+              onclick={handleModelSave}
+              class="px-3 py-1.5 text-xs border border-border hover:border-secondary transition-colors cursor-pointer text-muted hover:text-foreground rounded-md"
+            >
+              Save
+            </button>
+          </div>
+        {:else if isGemini && geminiModelsLoading}
+          <div class="flex items-center gap-2 text-xs text-muted">
+            <LoadingSpinner /> Fetching models...
+          </div>
+        {:else if isGemini && geminiModels.length > 0}
+          <select
+            bind:value={modelInput}
+            onchange={handleModelSave}
+            class="w-full px-3 py-1.5 text-xs border border-border bg-surface text-foreground rounded-md focus:outline-none focus:border-secondary"
+          >
+            {#each geminiModels as m}
+              <option value={m.id}>{m.label}</option>
+            {/each}
+          </select>
+        {:else if isGemini}
+          <div class="flex gap-2">
+            <input
+              type="text"
+              bind:value={modelInput}
+              class="flex-1 px-3 py-1.5 text-xs border border-border bg-surface text-foreground rounded-md focus:outline-none focus:border-secondary"
+              placeholder="gemini-2.0-flash"
+            />
+            <button
+              onclick={handleModelSave}
+              class="px-3 py-1.5 text-xs border border-border hover:border-secondary transition-colors cursor-pointer text-muted hover:text-foreground rounded-md"
+            >
+              Save
+            </button>
+          </div>
+        {:else if isCustom && customModelsLoading}
+          <div class="flex items-center gap-2 text-xs text-muted">
+            <LoadingSpinner /> Fetching models...
+          </div>
+        {:else if isCustom && customModels.length > 0}
+          <select
+            bind:value={modelInput}
+            onchange={handleModelSave}
+            class="w-full px-3 py-1.5 text-xs border border-border bg-surface text-foreground rounded-md focus:outline-none focus:border-secondary"
+          >
+            {#each customModels as m}
+              <option value={m.id}>{m.label}</option>
+            {/each}
+          </select>
         {:else if isOllama && ollamaLoading}
           <div class="flex items-center gap-2 text-xs text-muted">
             <LoadingSpinner /> Detecting models...
@@ -795,6 +960,25 @@
         {error}
       </div>
     {/if}
+
+    <!-- Click Behavior -->
+    <div>
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-medium text-muted uppercase tracking-wide">Click Opens</span>
+        <div class="flex items-center gap-2">
+          <span class="text-[10px] text-muted">{clickOpensSidepanel ? "Side Panel" : "Popup"}</span>
+          <button
+            onclick={handleClickBehaviorToggle}
+            class="relative w-9 h-5 rounded-full transition-colors cursor-pointer {clickOpensSidepanel ? 'bg-secondary' : 'bg-border'}"
+          >
+            <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform {clickOpensSidepanel ? 'translate-x-4' : ''}"></span>
+          </button>
+        </div>
+      </div>
+      <p class="text-[10px] text-muted mt-1.5">
+        {clickOpensSidepanel ? "Clicking the icon opens Noren in the side panel." : "Clicking the icon opens Noren as a popup."}
+      </p>
+    </div>
 
     <!-- Info -->
     <div class="mt-auto">

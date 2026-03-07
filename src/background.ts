@@ -38,8 +38,29 @@ chrome.runtime.onInstalled.addListener(() => {
     contexts: ["selection"],
   });
 
-  // Toolbar icon click opens popup. Side panel opened by context menu.
-  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
+  // Apply saved click behavior (default: side panel)
+  chrome.storage.local.get("click_opens_sidepanel").then(({ click_opens_sidepanel }) => {
+    const openSidePanel = click_opens_sidepanel !== false; // default true
+    chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: openSidePanel });
+    if (openSidePanel) {
+      chrome.action.setPopup({ popup: "" });
+    } else {
+      chrome.action.setPopup({ popup: "popup.html" });
+    }
+  });
+});
+
+// Listen for setting changes to toggle click behavior
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes.click_opens_sidepanel) {
+    const openSidePanel = changes.click_opens_sidepanel.newValue !== false;
+    chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: openSidePanel });
+    if (openSidePanel) {
+      chrome.action.setPopup({ popup: "" });
+    } else {
+      chrome.action.setPopup({ popup: "popup.html" });
+    }
+  }
 });
 
 // Handle context menu click — store selected text, open side panel
