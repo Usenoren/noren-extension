@@ -6,6 +6,7 @@
   import ProfileView from "$lib/components/ProfileView.svelte";
   import SettingsView from "$lib/components/SettingsView.svelte";
   import OnboardingView from "$lib/components/OnboardingView.svelte";
+  import NorenMark from "$lib/components/NorenMark.svelte";
 
   type View = "generate" | "chat" | "profile" | "settings";
   let view: View = $state("generate");
@@ -72,14 +73,14 @@
 {:else}
 <div class="flex flex-col h-screen overflow-hidden bg-background">
   <!-- Tab bar -->
-  <nav class="flex items-center gap-1 px-3 py-2 border-b border-border shrink-0 bg-surface">
+  <nav class="noise-texture flex items-center gap-1 px-3 py-2 shrink-0" style="background:var(--color-kon)">
     {#each navItems as item}
       <button
         onclick={() => { view = item.id; }}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition-colors cursor-pointer
+        class="relative z-[1] flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition-colors cursor-pointer
           {view === item.id
-            ? 'bg-primary/10 text-primary font-medium'
-            : 'text-muted hover:bg-tint hover:text-foreground'}"
+            ? 'bg-[rgba(255,255,255,0.08)] text-[rgba(255,255,255,0.9)] font-medium'
+            : 'bg-transparent text-[rgba(255,255,255,0.4)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[rgba(255,255,255,0.6)]'}"
       >
         {#if item.icon === "pen"}
           <svg class="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
@@ -103,7 +104,9 @@
       </button>
     {/each}
 
-    <span class="ml-auto text-[10px] text-muted/50 font-heading tracking-wide">noren</span>
+    <span class="relative z-[1] ml-auto" style="color:rgba(255,255,255,0.2)">
+      <NorenMark width={12} height={14} />
+    </span>
   </nav>
 
   <!-- Content area — all views stay mounted to preserve state -->

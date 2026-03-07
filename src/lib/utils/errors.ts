@@ -25,7 +25,7 @@ export function friendlyError(raw: unknown): string {
 
   // Connection refused / unreachable
   if (msg.includes("error sending request") || msg.includes("Connection refused") || msg.includes("ConnectError") || msg.includes("Failed to fetch")) {
-    if (msg.includes("noren.ink")) {
+    if (msg.includes("usenoren.ai")) {
       return "Can't reach Noren servers. The service may not be available yet.";
     }
     if (msg.includes("localhost") || msg.includes("127.0.0.1")) {

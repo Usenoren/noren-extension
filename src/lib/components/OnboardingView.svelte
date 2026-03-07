@@ -8,6 +8,7 @@
   } from "$lib/api/noren";
   import { friendlyError } from "$lib/utils/errors";
   import LoadingSpinner from "./LoadingSpinner.svelte";
+  import NorenMark from "./NorenMark.svelte";
 
   let { oncomplete }: { oncomplete: (tab: "generate" | "settings") => void } = $props();
 
@@ -92,8 +93,8 @@
     <div class="relative flex flex-col items-center max-w-xs w-full animate-fade-in-up mt-4">
       <!-- Logo -->
       <div class="relative mb-8">
-        <div class="w-16 h-16 rounded-2xl flex items-center justify-center onboarding-logo-glow">
-          <img src="/icons/icon-128.png" alt="Noren" class="w-full h-full object-contain" />
+        <div class="w-16 h-16 rounded-2xl flex items-center justify-center onboarding-logo-glow" style="color:var(--color-kon)">
+          <NorenMark width={36} height={43} />
         </div>
       </div>
 

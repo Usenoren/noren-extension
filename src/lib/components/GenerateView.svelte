@@ -173,7 +173,7 @@
       <p class="flex-1 text-[10px] text-muted leading-relaxed">
         No voice profile yet — output will be generic.
         <button
-          onclick={() => window.open("https://noren.ink", "_blank")}
+          onclick={() => window.open("https://usenoren.ai", "_blank")}
           class="text-secondary font-medium cursor-pointer hover:text-foreground"
         >Upgrade to Pro</button> for AI extraction.
       </p>
@@ -334,36 +334,41 @@
       <div class="flex-1 grid grid-cols-2 gap-2 min-h-0">
         <div class="flex flex-col min-h-0">
           <span class="text-[10px] font-medium text-primary mb-1 uppercase tracking-wide">With your voice</span>
-          <div class="flex-1 p-3 bg-surface border border-primary/30 rounded-lg overflow-y-auto">
+          <div class="flex-1 p-4 rounded-lg overflow-y-auto output-accent-line" style="background:var(--color-warm-surface);border:1px solid rgba(0,0,0,0.04)">
             <div class="animate-shimmer rounded-lg">
-              <p class="text-xs text-foreground whitespace-pre-wrap leading-relaxed">{comparison.with_voice.text}</p>
+              <p class="text-xs text-foreground whitespace-pre-wrap" style="line-height:1.75">{comparison.with_voice.text}</p>
             </div>
           </div>
         </div>
         <div class="flex flex-col min-h-0">
           <span class="text-[10px] font-medium text-muted mb-1 uppercase tracking-wide">Without voice</span>
-          <div class="flex-1 p-3 bg-surface border border-border rounded-lg overflow-y-auto">
+          <div class="flex-1 p-4 bg-surface border border-border rounded-lg overflow-y-auto">
             <div class="animate-shimmer rounded-lg">
-              <p class="text-xs text-foreground whitespace-pre-wrap leading-relaxed">{comparison.without_voice.text}</p>
+              <p class="text-xs text-foreground whitespace-pre-wrap" style="line-height:1.75">{comparison.without_voice.text}</p>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="flex items-center justify-between">
-        <span class="text-[10px] text-muted">
-          {comparison.with_voice.input_tokens + comparison.with_voice.output_tokens + comparison.without_voice.input_tokens + comparison.without_voice.output_tokens} tokens total
+      <div class="flex items-center">
+        <span class="font-mono text-[9px] text-muted mr-auto">
+          {comparison.with_voice.input_tokens + comparison.with_voice.output_tokens + comparison.without_voice.input_tokens + comparison.without_voice.output_tokens} tokens
         </span>
         <div class="flex gap-2">
           <button
             onclick={handleCopy}
-            class="px-3 py-1.5 text-xs border border-border hover:border-secondary transition-colors cursor-pointer text-muted hover:text-foreground rounded-md"
+            class="w-8 h-8 flex items-center justify-center border border-border hover:border-secondary transition-colors cursor-pointer text-muted hover:text-foreground rounded-md"
+            title={copied ? "Copied" : "Copy voiced"}
           >
-            {copied ? "Copied" : "Copy voiced"}
+            {#if copied}
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+            {:else}
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184"/></svg>
+            {/if}
           </button>
           <button
             onclick={handleInject}
-            class="px-3 py-1.5 text-xs bg-accent text-white hover:bg-accent-hover transition-colors cursor-pointer rounded-md font-medium"
+            class="px-3 py-1.5 text-xs text-white transition-colors cursor-pointer rounded-md font-medium" style="background:var(--color-kon)"
           >
             Inject voiced
           </button>
@@ -372,36 +377,47 @@
     </div>
   {:else if output}
     <div class="flex-1 flex flex-col gap-2 min-h-0 animate-fabric-unfurl">
-      <div class="flex-1 p-3 bg-surface border border-border rounded-lg overflow-y-auto">
-        <div class="animate-shimmer rounded-lg">
-          <p class="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{output.text}</p>
+      <!-- Voice badge + format pills -->
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="font-mono text-[9px] uppercase tracking-wider text-muted">{format}</span>
+          <span class="font-mono text-[9px] uppercase tracking-wider text-muted">{level}</span>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <span class="w-1.5 h-1.5 rounded-full bg-signal animate-voice-pulse"></span>
+          <span class="text-[10px] text-signal font-medium">Voice active</span>
         </div>
       </div>
 
-      <div class="flex flex-col gap-1">
-        <div class="flex items-center justify-between">
-          <span class="text-[10px] text-muted">
-            {output.input_tokens + output.output_tokens} tokens
-            {#if copied}&middot; copied{/if}
-          </span>
-          <div class="flex gap-2">
-            <button
-              onclick={handleCopy}
-              class="px-3 py-1.5 text-xs border border-border hover:border-secondary transition-colors cursor-pointer text-muted hover:text-foreground rounded-md"
-            >
-              {copied ? "Copied" : "Copy"}
-            </button>
-            <button
-              onclick={handleInject}
-              class="px-3 py-1.5 text-xs bg-accent text-white hover:bg-accent-hover transition-colors cursor-pointer rounded-md font-medium"
-            >
-              Inject
-            </button>
-          </div>
+      <div class="flex-1 p-4 rounded-lg overflow-y-auto output-accent-line" style="background:var(--color-warm-surface);border:1px solid rgba(0,0,0,0.04)">
+        <div class="animate-shimmer rounded-lg">
+          <p class="text-sm text-foreground whitespace-pre-wrap" style="line-height:1.75">{output.text}</p>
         </div>
-        <p class="text-[10px] text-muted text-right">
-          Text is on your clipboard — Ctrl+V to paste manually
-        </p>
+      </div>
+
+      <div class="flex items-center">
+        <span class="font-mono text-[9px] text-muted mr-auto">
+          {output.input_tokens + output.output_tokens} tokens
+        </span>
+        <div class="flex gap-2">
+          <button
+            onclick={handleCopy}
+            class="w-8 h-8 flex items-center justify-center border border-border hover:border-secondary transition-colors cursor-pointer text-muted hover:text-foreground rounded-md"
+            title={copied ? "Copied" : "Copy"}
+          >
+            {#if copied}
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+            {:else}
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184"/></svg>
+            {/if}
+          </button>
+          <button
+            onclick={handleInject}
+            class="px-3 py-1.5 text-xs text-white transition-colors cursor-pointer rounded-md font-medium" style="background:var(--color-kon)"
+          >
+            Inject
+          </button>
+        </div>
       </div>
     </div>
   {/if}

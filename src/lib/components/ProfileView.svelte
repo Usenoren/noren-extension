@@ -191,7 +191,7 @@
               onclick={() => handleUpgrade("extraction")}
               class="text-[10px] text-secondary font-medium cursor-pointer hover:text-foreground uppercase tracking-wide"
             >
-              One-time $29
+              One-time $19
             </button>
             <span class="text-[10px] text-muted">or</span>
             <button
@@ -371,7 +371,7 @@
                   onclick={() => handleUpgrade("extraction")}
                   class="text-[10px] text-secondary font-medium cursor-pointer hover:text-foreground uppercase tracking-wide"
                 >
-                  One-time $29
+                  One-time $19
                 </button>
                 <span class="text-[10px] text-muted">or</span>
                 <button

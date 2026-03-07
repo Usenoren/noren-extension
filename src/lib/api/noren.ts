@@ -1,7 +1,7 @@
 import { keychainGet, keychainStore, keychainDelete, isKeychainAvailable } from "./keychain";
 export { isKeychainAvailable } from "./keychain";
 
-const API_BASE = "https://api.noren.ink/v1";
+const API_BASE = "https://api.usenoren.ai/v1";
 
 // ============================================================
 // Types — reused from desktop tauri.ts
