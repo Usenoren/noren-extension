@@ -11,6 +11,8 @@
     norenProLogin,
     norenProSignup,
     norenProLogout,
+    verifyEmail,
+    resendOtp,
     getNorenProUsage,
     getSubscriptionStatus,
     createCheckout,
@@ -57,6 +59,10 @@
   let proStatus = $state<NorenProStatus | null>(null);
   let authMode = $state<"login" | "signup">("login");
   let googleLoading = $state(false);
+  let pendingVerification = $state(false);
+  let otpCode = $state("");
+  let otpLoading = $state(false);
+  let otpMessage = $state("");
 
   // Subscription state
   let subscription = $state<SubscriptionStatus | null>(null);
@@ -271,16 +277,48 @@
     try {
       if (authMode === "signup") {
         await norenProSignup(proEmail.trim(), proPassword.trim());
+        pendingVerification = true;
+        otpMessage = "Check your email for a verification code.";
+        proPassword = "";
       } else {
         await norenProLogin(proEmail.trim(), proPassword.trim());
+        proEmail = "";
+        proPassword = "";
+        await handleModeSwitch("noren_pro");
       }
-      proEmail = "";
-      proPassword = "";
-      await handleModeSwitch("noren_pro");
     } catch (e) {
       error = friendlyError(e);
     } finally {
       proLoading = false;
+    }
+  }
+
+  async function handleVerifyOtp() {
+    if (!otpCode.trim()) return;
+    otpLoading = true;
+    error = "";
+    otpMessage = "";
+    try {
+      await verifyEmail(otpCode.trim());
+      pendingVerification = false;
+      otpCode = "";
+      proEmail = "";
+      await handleModeSwitch("noren_pro");
+    } catch (e) {
+      error = friendlyError(e);
+    } finally {
+      otpLoading = false;
+    }
+  }
+
+  async function handleResendOtp() {
+    error = "";
+    otpMessage = "";
+    try {
+      const msg = await resendOtp();
+      otpMessage = msg;
+    } catch (e) {
+      error = friendlyError(e);
     }
   }
 
@@ -564,6 +602,62 @@
               Manage subscription
             </button>
           {/if}
+        </div>
+      {:else if pendingVerification}
+        <!-- OTP Verification -->
+        <div class="flex flex-col gap-3">
+          <div class="p-3 card border-secondary/30">
+            <h3 class="text-xs font-semibold text-foreground mb-1">Verify your email</h3>
+            <p class="text-[10px] text-muted">
+              We sent a code to <span class="font-medium text-foreground">{proEmail}</span>.
+            </p>
+          </div>
+
+          <input
+            type="text"
+            bind:value={otpCode}
+            onkeydown={(e) => { if (e.key === "Enter") handleVerifyOtp(); }}
+            class="px-3 py-2 text-sm text-center tracking-[0.3em] border border-border bg-surface text-foreground rounded-md focus:outline-none focus:border-secondary"
+            placeholder="000000"
+            maxlength={6}
+            autocomplete="one-time-code"
+          />
+          <button
+            onclick={handleVerifyOtp}
+            disabled={otpLoading || !otpCode.trim()}
+            class="w-full py-2 text-xs font-medium bg-secondary text-white hover:bg-secondary/90 transition-colors cursor-pointer disabled:opacity-50 rounded-md"
+          >
+            {#if otpLoading}
+              <span class="inline-flex items-center gap-1"><LoadingSpinner /> Verifying...</span>
+            {:else}
+              Verify email
+            {/if}
+          </button>
+
+          {#if otpMessage}
+            <p class="text-[10px] text-secondary">{otpMessage}</p>
+          {/if}
+
+          {#if error}
+            <div class="p-2 bg-tint border border-border rounded-lg text-xs text-muted leading-relaxed">
+              {error}
+            </div>
+          {/if}
+
+          <div class="flex items-center justify-between">
+            <button
+              onclick={handleResendOtp}
+              class="text-[10px] text-muted hover:text-foreground transition-colors cursor-pointer underline"
+            >
+              Resend code
+            </button>
+            <button
+              onclick={() => { pendingVerification = false; otpCode = ""; error = ""; otpMessage = ""; }}
+              class="text-[10px] text-muted hover:text-foreground transition-colors cursor-pointer"
+            >
+              Back
+            </button>
+          </div>
         </div>
       {:else}
         <!-- Login/Signup form -->

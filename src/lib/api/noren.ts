@@ -1031,6 +1031,21 @@ export async function norenProSignup(email: string, password: string): Promise<N
   return { logged_in: true, email, inference_mode: "noren_pro", tokens_used: null, tokens_limit: null, requests_this_month: null };
 }
 
+export async function verifyEmail(code: string): Promise<string> {
+  const data = await apiJson<{ message: string }>("/auth/verify-email", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+  return data.message;
+}
+
+export async function resendOtp(): Promise<string> {
+  const data = await apiJson<{ message: string }>("/auth/resend-otp", {
+    method: "POST",
+  });
+  return data.message;
+}
+
 export async function norenProLogout(): Promise<void> {
   await clearTokens();
   await setInferenceMode("byok");
