@@ -7,6 +7,7 @@
     listChats,
     loadChat,
     deleteChat,
+    syncChatsFromServer,
     type ChatMessage,
     type ConversationSummary,
   } from "$lib/api/noren";
@@ -70,11 +71,27 @@
       }
     });
 
+    // Pull remote chats from server, then refresh history list
+    syncChatsFromServer().then(() => refreshHistory());
     refreshHistory();
     // Skip restoring last chat if we have context text to show
     if (!initialContext) {
       restoreActiveChat();
     }
+  });
+
+  // Sync chats when side panel / popup regains focus
+  $effect(() => {
+    const onFocus = () => {
+      syncChatsFromServer().then(() => refreshHistory()).catch(() => {});
+    };
+    const onVisible = () => { if (!document.hidden) onFocus(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onFocus);
+    };
   });
 
   // React to context changes from parent — start a fresh chat
@@ -270,12 +287,24 @@
     isLoading = true;
     scrollToBottom();
 
+    // Ensure conversation ID exists before sending (needed for server-side chat sync)
+    if (!conversationId) {
+      conversationId = generateId();
+      conversationCreatedAt = nowISO();
+    }
+
     try {
       const attachmentContents = attachedFiles.length > 0
         ? attachedFiles.map((f) => f.content)
         : undefined;
 
-      const result = await chatSend({ messages, format, attachments: attachmentContents });
+      const result = await chatSend({
+        messages,
+        format,
+        attachments: attachmentContents,
+        chatId: conversationId,
+        chatTitle: generateTitle(messages[0].content),
+      });
       attachedFiles = [];
       const assistantMessage: ChatMessage = { role: "assistant", content: result.text };
       messages = [...messages, assistantMessage];

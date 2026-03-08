@@ -10,6 +10,7 @@
   } from "$lib/api/noren";
   import {
     canExtract,
+    canExport,
     canLivingProfile,
     canSync,
     isPro,
@@ -52,7 +53,7 @@
     error = "";
     try {
       overview = await getProfileOverview();
-      if (overview.exists) {
+      if (overview.exists && !overview.is_server) {
         profile = await readProfileContent();
       }
       await refreshSubscription();
@@ -237,8 +238,78 @@
         </button>
       </div>
     </div>
+  {:else if overview?.is_server}
+    <!-- Server profile — metadata only -->
+    <div class="flex flex-col gap-3 h-full px-4 py-4">
+      <div class="p-3 bg-surface border border-secondary/20 rounded-lg">
+        <p class="text-sm font-medium text-foreground">Voice profile on Noren servers</p>
+        <p class="text-[10px] text-muted mt-1 leading-relaxed">
+          Your extracted profile is securely stored on Noren servers and used automatically when generating text.
+        </p>
+      </div>
+
+      {#if overview.formats.length > 0}
+        <div class="p-3 bg-surface border border-border rounded-lg">
+          <span class="text-[10px] font-medium text-muted uppercase tracking-wide">Formats</span>
+          <div class="flex gap-1.5 mt-1.5 flex-wrap">
+            {#each overview.formats as fmt}
+              <span class="px-2 py-0.5 text-xs bg-tint border border-border rounded text-secondary">{fmt}</span>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
+      <!-- Living Profile section -->
+      {#if canLivingProfile()}
+        <div class="p-3 bg-surface border border-border rounded-lg">
+          <div class="flex items-center gap-1.5">
+            <div class="w-[5px] h-[5px] rounded-full bg-secondary animate-pulse"></div>
+            <span class="text-[10px] text-secondary font-medium">Living Profile</span>
+          </div>
+          <p class="text-[10px] text-muted mt-1 leading-relaxed">
+            Your profile refines automatically as you write. Manage edit tracking in the desktop app.
+          </p>
+        </div>
+      {:else}
+        <div class="p-2.5 bg-tint border border-secondary/10 rounded-lg">
+          <p class="text-[10px] font-medium text-secondary">Living Profile</p>
+          <p class="text-[10px] text-muted leading-relaxed mt-0.5">
+            Your profile evolves as you write. Noren tracks your edits and suggests refinements automatically.
+          </p>
+          <button
+            onclick={() => handleUpgrade("pro")}
+            class="mt-2 px-3 py-1 text-[10px] font-medium bg-secondary text-white hover:bg-secondary/90 transition-colors cursor-pointer rounded uppercase tracking-wide"
+          >
+            Upgrade to Pro
+          </button>
+        </div>
+      {/if}
+
+      <div class="flex-1"></div>
+
+      {#if error}
+        <div class="p-2 bg-tint border border-border rounded-lg text-[10px] text-error">
+          {error}
+        </div>
+      {/if}
+
+      <div class="flex items-center justify-between shrink-0">
+        <span class="text-[10px] text-muted">Stored on Noren servers</span>
+        {#if canExport()}
+          <span class="text-[10px] text-muted">Export available in the desktop app</span>
+        {:else}
+          <button
+            onclick={() => handleUpgrade("export")}
+            class="px-3 py-1.5 text-xs border border-border hover:border-secondary transition-colors cursor-pointer text-muted hover:text-foreground rounded-md"
+            title="One-time purchase to export your profile"
+          >
+            Export <span class="text-[8px] text-secondary font-medium">$</span>
+          </button>
+        {/if}
+      </div>
+    </div>
   {:else}
-    <!-- Profile exists — view/edit -->
+    <!-- Local profile — view/edit -->
     <div class="flex flex-col h-full">
       <!-- Tabs -->
       <div class="flex items-center gap-1 px-4 py-3 border-b border-border shrink-0 overflow-x-auto">

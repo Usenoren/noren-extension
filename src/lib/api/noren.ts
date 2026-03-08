@@ -1,7 +1,7 @@
 import { keychainGet, keychainStore, keychainDelete, isKeychainAvailable } from "./keychain";
 export { isKeychainAvailable } from "./keychain";
 
-const API_BASE = "https://api.usenoren.ai/v1";
+const API_BASE = "http://localhost:8000/v1";
 
 // ============================================================
 // Types — reused from desktop tauri.ts
@@ -729,7 +729,7 @@ export async function generate(params: {
   const settings = await getSettings();
 
   if (settings.inference_mode === "noren_pro" && settings.noren_pro_logged_in) {
-    return apiJson<GenerateResult>("/generate", {
+    const resp = await apiJson<{ content: string; input_tokens: number; output_tokens: number }>("/generate", {
       method: "POST",
       body: JSON.stringify({
         prompt: params.prompt,
@@ -739,6 +739,7 @@ export async function generate(params: {
         attachments: params.attachments,
       }),
     });
+    return { text: resp.content, input_tokens: resp.input_tokens, output_tokens: resp.output_tokens };
   }
 
   return byokGenerate(params);
@@ -768,19 +769,23 @@ export async function chatSend(params: {
   messages: ChatMessage[];
   format: string;
   attachments?: string[];
+  chatId?: string;
+  chatTitle?: string;
 }): Promise<GenerateResult> {
   const settings = await getSettings();
 
   if (settings.inference_mode === "noren_pro" && settings.noren_pro_logged_in) {
-    return apiJson<GenerateResult>("/generate", {
+    const resp = await apiJson<{ content: string; input_tokens: number; output_tokens: number }>("/generate", {
       method: "POST",
       body: JSON.stringify({
         messages: params.messages,
         format: params.format,
         attachments: params.attachments,
-        mode: "chat",
+        chat_id: params.chatId,
+        chat_title: params.chatTitle,
       }),
     });
+    return { text: resp.content, input_tokens: resp.input_tokens, output_tokens: resp.output_tokens };
   }
 
   return byokChat(params.messages, params.format, params.attachments);
@@ -824,6 +829,67 @@ export async function loadChat(id: string): Promise<Conversation> {
 
 export async function deleteChat(id: string): Promise<void> {
   await chrome.storage.local.remove(`chat_${id}`);
+  // Fire-and-forget: propagate delete to server for Pro users
+  try {
+    const settings = await getSettings();
+    if (settings.inference_mode === "noren_pro" && settings.noren_pro_logged_in) {
+      apiFetch(`/sync/chats/${id}`, { method: "DELETE" }).catch(() => {});
+    }
+  } catch { /* ignore */ }
+}
+
+// ============================================================
+// Chat sync — pull remote chats from server
+// ============================================================
+
+export async function syncChatsFromServer(): Promise<number> {
+  const settings = await getSettings();
+  if (settings.inference_mode !== "noren_pro" || !settings.noren_pro_logged_in) return 0;
+
+  try {
+    // Get manifest of all server chats
+    const manifest = await apiJson<{ chats: Array<{
+      chat_id: string; title: string | null; updated_at: string;
+      size_bytes: number; is_deleted: boolean;
+    }>; server_time: string }>("/sync/chats/manifest");
+
+    let synced = 0;
+    for (const entry of manifest.chats) {
+      if (entry.is_deleted) {
+        // Remove locally if server deleted
+        await chrome.storage.local.remove(`chat_${entry.chat_id}`);
+        continue;
+      }
+
+      // Check if we already have this chat locally and it's up to date
+      const localResult = await chrome.storage.local.get(`chat_${entry.chat_id}`);
+      const local = localResult[`chat_${entry.chat_id}`] as Conversation | undefined;
+      if (local && local.updated_at >= entry.updated_at) continue;
+
+      // Download from server
+      const remote = await apiJson<{
+        chat_id: string; title: string | null;
+        messages: Array<{ role: string; content: string }>;
+        updated_at: string;
+      }>(`/sync/chats/${entry.chat_id}`);
+
+      // Save locally as a Conversation
+      const conv: Conversation = {
+        id: remote.chat_id,
+        title: remote.title || "Untitled",
+        format: "general",
+        created_at: remote.updated_at,
+        updated_at: remote.updated_at,
+        total_tokens: 0,
+        messages: remote.messages as ChatMessage[],
+      };
+      await chrome.storage.local.set({ [`chat_${conv.id}`]: conv });
+      synced++;
+    }
+    return synced;
+  } catch {
+    return 0;
+  }
 }
 
 // ============================================================
@@ -835,10 +901,10 @@ export async function getProfileOverview(): Promise<ProfileOverview> {
 
   if (settings.inference_mode === "noren_pro" && settings.noren_pro_logged_in) {
     try {
-      const meta = await apiJson<{ exists: boolean; formats: string[]; is_server?: boolean }>(
+      const meta = await apiJson<{ has_profile: boolean; formats: string[] }>(
         "/profile/voice/metadata"
       );
-      return meta;
+      return { exists: meta.has_profile, formats: meta.formats, is_server: true };
     } catch {
       return { exists: false, formats: [] };
     }
@@ -876,9 +942,12 @@ export async function readProfileContent(): Promise<ProfileContent> {
 
   if (settings.inference_mode === "noren_pro" && settings.noren_pro_logged_in) {
     try {
-      return await apiJson<ProfileContent>("/profile/voice/content");
+      return await apiJson<ProfileContent>("/profile/voice/export", { method: "POST" });
     } catch {
-      // Fall through to local
+      return {
+        core_identity: "Your voice profile is managed on the server. Upgrade to view and export your profile.",
+        contexts: {},
+      };
     }
   }
 
@@ -918,7 +987,6 @@ export async function saveProfileEdit(params: {
 export async function getVoiceProfileText(format?: string): Promise<string | null> {
   const settings = await getSettings();
 
-  // Pro users: server handles profile injection, no need to add it client-side
   if (settings.inference_mode === "noren_pro" && settings.noren_pro_logged_in) {
     return null;
   }
