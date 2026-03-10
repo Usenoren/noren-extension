@@ -1172,3 +1172,28 @@ export async function injectGeneratedText(text: string): Promise<void> {
 
   await chrome.tabs.sendMessage(tab.id, { type: "inject-text", text });
 }
+
+// ============================================================
+// Announcements — public, no auth
+// ============================================================
+
+export interface Announcement {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  cta_url: string | null;
+  cta_label: string | null;
+  published_at: string;
+}
+
+export async function fetchAnnouncements(since?: string): Promise<Announcement[]> {
+  try {
+    const url = `${API_BASE}/announcements${since ? `?since=${since}` : ""}`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    return res.json();
+  } catch {
+    return [];
+  }
+}

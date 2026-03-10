@@ -1,0 +1,145 @@
+<script lang="ts">
+  import { onMount } from "svelte";
+  import { marked } from "marked";
+  import DOMPurify from "dompurify";
+  import { fetchAnnouncements } from "$lib/api/noren";
+  import type { Announcement } from "$lib/api/noren";
+
+  let announcements: Announcement[] = $state([]);
+  let lastSeen: string | null = $state(null);
+  let open = $state(false);
+
+  const unreadCount = $derived(
+    lastSeen
+      ? announcements.filter(a => a.published_at > lastSeen!).length
+      : announcements.length
+  );
+
+  function typeColor(type: string): string {
+    switch (type) {
+      case "feature": return "bg-indigo-500/20 text-indigo-300";
+      case "update": return "bg-emerald-500/20 text-emerald-300";
+      case "promo": return "bg-amber-500/20 text-amber-300";
+      case "maintenance": return "bg-orange-500/20 text-orange-300";
+      default: return "bg-gray-500/20 text-gray-300";
+    }
+  }
+
+  function renderMarkdown(md: string): string {
+    return DOMPurify.sanitize(marked.parse(md) as string);
+  }
+
+  async function handleOpen() {
+    open = !open;
+    if (open && announcements.length > 0) {
+      const latest = announcements[0].published_at;
+      lastSeen = latest;
+      await chrome.storage.local.set({ last_seen_announcement_ts: latest });
+    }
+  }
+
+  function handleClickOutside(e: MouseEvent) {
+    const target = e.target as HTMLElement;
+    if (open && !target.closest(".announcement-bell")) {
+      open = false;
+    }
+  }
+
+  function refresh() {
+    fetchAnnouncements().then((data) => { announcements = data; }).catch(() => {});
+  }
+
+  function handleVisibility() {
+    if (document.visibilityState === "visible") refresh();
+  }
+
+  onMount(() => {
+    chrome.storage.local.get("last_seen_announcement_ts")
+      .then((data) => { lastSeen = data.last_seen_announcement_ts || null; return fetchAnnouncements(); })
+      .then((data) => { announcements = data; })
+      .catch(() => {});
+
+    document.addEventListener("click", handleClickOutside);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      document.removeEventListener("click", handleClickOutside);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  });
+</script>
+
+<div class="announcement-bell relative">
+  <button
+    onclick={handleOpen}
+    class="relative p-0.5 rounded transition-colors cursor-pointer hover:bg-white/10 {unreadCount > 0 ? 'bell-breathe' : ''}"
+    title="Announcements"
+  >
+    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"
+      style="color:rgba(255,255,255,{unreadCount > 0 ? '0.85' : '0.2'})">
+      <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/>
+    </svg>
+    {#if unreadCount > 0}
+      <span class="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-500 text-[5px] font-bold text-white flex items-center justify-center">
+        {unreadCount > 9 ? "+" : unreadCount}
+      </span>
+    {/if}
+  </button>
+
+  {#if open && announcements.length > 0}
+    <div class="absolute top-full right-0 mt-1 w-[260px] max-h-[320px] overflow-y-auto
+                bg-[#1a1a2e] border border-white/10 rounded-lg shadow-xl z-50">
+      <div class="p-2 border-b border-white/10">
+        <h3 class="text-[9px] font-semibold uppercase tracking-wider text-white/40">What's New</h3>
+      </div>
+      <div class="flex flex-col">
+        {#each announcements as a}
+          <div class="p-2 border-b border-white/5 last:border-0 {lastSeen && a.published_at > lastSeen ? 'bg-white/[0.02]' : ''}">
+            <div class="flex items-center gap-1 mb-0.5">
+              <span class="text-[7px] font-semibold uppercase px-1 py-0.5 rounded-full {typeColor(a.type)}">
+                {a.type}
+              </span>
+              <span class="text-[8px] text-white/30">
+                {new Date(a.published_at).toLocaleDateString()}
+              </span>
+            </div>
+            <h4 class="text-[11px] font-medium text-white/90 mb-0.5">{a.title}</h4>
+            <div class="text-[10px] text-white/50 leading-relaxed prose-compact">
+              {@html renderMarkdown(a.body)}
+            </div>
+            {#if a.cta_url}
+              <a
+                href={a.cta_url}
+                target="_blank"
+                rel="noopener"
+                class="inline-block mt-1 text-[9px] font-medium text-indigo-400 hover:text-indigo-300"
+              >
+                {a.cta_label || "Learn more"} &rarr;
+              </a>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    </div>
+  {/if}
+</div>
+
+<style>
+  .bell-breathe {
+    animation: bell-scale 2s ease-in-out infinite;
+    transform-origin: center center;
+  }
+  @keyframes bell-scale {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.3); }
+  }
+  .prose-compact :global(p) {
+    margin: 0 0 0.2em 0;
+  }
+  .prose-compact :global(p:last-child) {
+    margin-bottom: 0;
+  }
+  .prose-compact :global(a) {
+    color: #818cf8;
+    text-decoration: underline;
+  }
+</style>

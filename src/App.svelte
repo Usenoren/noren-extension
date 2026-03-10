@@ -7,6 +7,7 @@
   import SettingsView from "$lib/components/SettingsView.svelte";
   import OnboardingView from "$lib/components/OnboardingView.svelte";
   import NorenMark from "$lib/components/NorenMark.svelte";
+  import AnnouncementBell from "$lib/components/AnnouncementBell.svelte";
 
   type View = "generate" | "chat" | "profile" | "settings";
   let view: View = $state("generate");
@@ -104,7 +105,8 @@
       </button>
     {/each}
 
-    <span class="relative z-[1] ml-auto" style="color:rgba(255,255,255,0.2)">
+    <span class="relative z-[1] ml-auto flex items-center gap-1.5" style="color:rgba(255,255,255,0.2)">
+      <AnnouncementBell />
       <NorenMark width={12} height={14} />
     </span>
   </nav>
