@@ -1075,13 +1075,13 @@ export async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
 export async function createCheckout(tier: string): Promise<CheckoutResult> {
   return apiJson<CheckoutResult>("/billing/checkout", {
     method: "POST",
-    body: JSON.stringify({ tier }),
+    body: JSON.stringify({ target: tier }),
   });
 }
 
 export async function openBillingPortal(): Promise<string> {
-  const data = await apiJson<{ url: string }>("/billing/portal", { method: "POST" });
-  return data.url;
+  const data = await apiJson<{ portal_url: string }>("/billing/portal", { method: "POST" });
+  return data.portal_url;
 }
 
 // ============================================================
