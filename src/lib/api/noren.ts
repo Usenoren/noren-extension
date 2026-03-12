@@ -1,7 +1,9 @@
 import { keychainGet, keychainStore, keychainDelete, isKeychainAvailable } from "./keychain";
 export { isKeychainAvailable } from "./keychain";
 
-const API_BASE = "http://localhost:8000/v1";
+const API_BASE = import.meta.env.DEV
+  ? "http://localhost:8000/v1"
+  : "https://api.usenoren.ai/v1";
 
 // ============================================================
 // Types — reused from desktop tauri.ts
