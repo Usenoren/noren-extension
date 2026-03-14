@@ -242,6 +242,11 @@
                 {level === lvl
                   ? 'bg-primary text-white font-medium'
                   : 'bg-surface text-muted border border-border hover:border-secondary hover:text-foreground'}"
+              title={lvl === "strict"
+                ? "Strict: maximizes voice fidelity, may constrain creativity"
+                : lvl === "guided"
+                  ? "Guided: balances your voice with natural flow (recommended)"
+                  : "Light: uses your voice as a gentle guide, more creative freedom"}
             >
               {lvl}
             </button>

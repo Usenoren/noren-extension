@@ -102,7 +102,7 @@
   let claudeModelsLoading = $state(false);
 
   const tiers = [
-    { id: "pro", label: "Noren Pro", price: "$19", period: "/mo", desc: "Everything: extraction, inference, living profile, sync" },
+    { id: "pro", label: "Noren Pro", price: "$7", period: "/mo", desc: "Everything: extraction, inference, living profile, sync" },
   ] as const;
 
   $effect(() => {

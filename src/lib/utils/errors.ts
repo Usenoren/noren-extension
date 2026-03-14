@@ -49,6 +49,9 @@ export function friendlyError(raw: unknown): string {
     return "Invalid API key. Check your key in Settings.";
   }
   if (msg.includes("403") || msg.includes("Forbidden")) {
+    if (msg.includes("verified") || msg.includes("verification")) {
+      return "Please verify your email first. Check Account settings.";
+    }
     return "Access denied. Your API key may not have permission for this model.";
   }
 

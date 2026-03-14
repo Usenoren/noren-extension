@@ -5,6 +5,8 @@
     setInferenceMode,
     googleOAuthInit,
     googleOAuthPoll,
+    verifyEmail,
+    resendOtp,
   } from "$lib/api/noren";
   import { friendlyError } from "$lib/utils/errors";
   import LoadingSpinner from "./LoadingSpinner.svelte";
@@ -12,7 +14,7 @@
 
   let { oncomplete }: { oncomplete: (tab: "generate" | "settings") => void } = $props();
 
-  type Screen = "welcome" | "signin";
+  type Screen = "welcome" | "signin" | "otp";
   let screen: Screen = $state("welcome");
 
   let authMode = $state<"login" | "signup">("login");
@@ -21,6 +23,12 @@
   let loading = $state(false);
   let googleLoading = $state(false);
   let error = $state("");
+
+  // OTP verification state
+  let otpCode = $state("");
+  let otpLoading = $state(false);
+  let otpMessage = $state("");
+  let resendCooldown = $state(0);
 
   async function handleByok() {
     await chrome.storage.local.set({ onboarding_complete: true });
@@ -34,16 +42,60 @@
     try {
       if (authMode === "signup") {
         await norenProSignup(email.trim(), password.trim());
+        password = "";
+        otpMessage = "Check your email for a verification code.";
+        screen = "otp";
+        startResendCooldown();
       } else {
         await norenProLogin(email.trim(), password.trim());
+        await setInferenceMode("noren_pro");
+        await chrome.storage.local.set({ onboarding_complete: true });
+        oncomplete("generate");
       }
+    } catch (e) {
+      error = friendlyError(e);
+    } finally {
+      loading = false;
+    }
+  }
+
+  function startResendCooldown() {
+    resendCooldown = 60;
+    const interval = setInterval(() => {
+      resendCooldown--;
+      if (resendCooldown <= 0) clearInterval(interval);
+    }, 1000);
+  }
+
+  async function handleVerifyOtp() {
+    if (!otpCode.trim()) return;
+    otpLoading = true;
+    error = "";
+    otpMessage = "";
+    try {
+      await verifyEmail(otpCode.trim());
+      otpCode = "";
+      email = "";
       await setInferenceMode("noren_pro");
       await chrome.storage.local.set({ onboarding_complete: true });
       oncomplete("generate");
     } catch (e) {
       error = friendlyError(e);
     } finally {
-      loading = false;
+      otpLoading = false;
+    }
+  }
+
+  async function handleResendOtp() {
+    if (resendCooldown > 0) return;
+    error = "";
+    otpMessage = "";
+    try {
+      const msg = await resendOtp();
+      otpMessage = msg;
+      startResendCooldown();
+    } catch (e) {
+      error = friendlyError(e);
     }
   }
 
@@ -130,7 +182,7 @@
       </button>
     </div>
 
-  {:else}
+  {:else if screen === "signin"}
     <!-- Screen 2: Noren Pro Sign In -->
     <div class="flex flex-col gap-4 max-w-xs w-full animate-fade-in-up">
       <div class="text-center mb-2">
@@ -228,6 +280,65 @@
       >
         Back
       </button>
+    </div>
+
+  {:else if screen === "otp"}
+    <!-- Screen 3: OTP Verification -->
+    <div class="flex flex-col gap-4 max-w-xs w-full animate-fade-in-up">
+      <div class="text-center mb-2">
+        <h2 class="font-heading text-lg text-foreground">Verify your email</h2>
+        <p class="text-xs text-muted mt-1">
+          We sent a verification code to <span class="font-medium text-foreground">{email}</span>
+        </p>
+      </div>
+
+      <input
+        type="text"
+        bind:value={otpCode}
+        onkeydown={(e) => { if (e.key === "Enter") handleVerifyOtp(); }}
+        class="px-3 py-2 text-sm text-center tracking-[0.3em] border border-border bg-surface text-foreground rounded-md focus:outline-none focus:border-secondary"
+        placeholder="000000"
+        maxlength={6}
+        autocomplete="one-time-code"
+      />
+
+      <button
+        onclick={handleVerifyOtp}
+        disabled={otpLoading || !otpCode.trim()}
+        class="w-full py-2 text-xs font-medium bg-secondary text-white hover:bg-secondary/90 transition-colors cursor-pointer disabled:opacity-50 rounded-md"
+      >
+        {#if otpLoading}
+          <span class="inline-flex items-center gap-1"><LoadingSpinner /> Verifying...</span>
+        {:else}
+          Verify email
+        {/if}
+      </button>
+
+      {#if otpMessage}
+        <p class="text-[10px] text-secondary">{otpMessage}</p>
+      {/if}
+
+      {#if error}
+        <div class="p-2 bg-tint border border-border rounded-lg text-xs text-muted leading-relaxed">
+          {error}
+        </div>
+      {/if}
+
+      <div class="flex items-center justify-between">
+        <button
+          onclick={handleResendOtp}
+          disabled={resendCooldown > 0}
+          class="text-[10px] transition-colors cursor-pointer {resendCooldown > 0 ? 'text-muted/50' : 'text-muted hover:text-foreground underline'}"
+        >
+          {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Resend code"}
+        </button>
+        <button
+          onclick={() => { screen = "signin"; otpCode = ""; error = ""; otpMessage = ""; }}
+          class="text-[10px] text-muted hover:text-foreground transition-colors cursor-pointer"
+        >
+          Back
+        </button>
+      </div>
     </div>
   {/if}
 </div>
