@@ -1315,11 +1315,13 @@ export async function getProfileMetadata(): Promise<ProfileMetadata> {
 // ============================================================
 
 export async function syncProfileUp(): Promise<void> {
-  await apiFetch("/sync/profile", { method: "PUT" });
+  const res = await apiFetch("/sync/profile", { method: "PUT" });
+  if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
 }
 
 export async function syncProfileDown(): Promise<void> {
-  await apiFetch("/sync/profile");
+  const res = await apiFetch("/sync/profile");
+  if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
 }
 
 export async function getSyncStatus(): Promise<SyncStatus> {
