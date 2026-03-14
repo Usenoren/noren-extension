@@ -3,10 +3,22 @@
     readProfileContent,
     saveProfileEdit,
     getProfileOverview,
+    getProfileMetadata,
+    getEditLogCount,
+    uploadEditLog,
+    refreshLivingProfile,
+    getRefreshHistory,
+    rollbackProfile,
+    syncProfileUp,
+    syncProfileDown,
+    getSyncStatus,
     createCheckout,
     getSettings,
     type ProfileContent,
     type ProfileOverview,
+    type ProfileMetadata,
+    type RefreshHistoryEntry,
+    type SyncStatus,
   } from "$lib/api/noren";
   import {
     canExtract,
@@ -25,6 +37,18 @@
   let isLoading = $state(true);
   let error = $state("");
   let saveSuccess = $state(false);
+
+  // Server profile state
+  let metadata = $state<ProfileMetadata | null>(null);
+  let editCount = $state(0);
+  let refreshHistory = $state<RefreshHistoryEntry[]>([]);
+  let syncStatus = $state<SyncStatus | null>(null);
+  let isRefreshing = $state(false);
+  let isRollingBack = $state(false);
+  let isSyncing = $state(false);
+  let isExporting = $state(false);
+  let refreshMessage = $state("");
+  let showHistory = $state(false);
 
   // Tabs: "core" or format name
   let activeTab = $state("core");
@@ -57,6 +81,23 @@
         profile = await readProfileContent();
       }
       await refreshSubscription();
+
+      // Load server-specific data
+      if (overview?.is_server) {
+        const [meta, edits] = await Promise.all([
+          getProfileMetadata().catch(() => null),
+          getEditLogCount(),
+        ]);
+        metadata = meta;
+        editCount = edits;
+
+        if (canSync()) {
+          syncStatus = await getSyncStatus().catch(() => null);
+        }
+        if (canLivingProfile()) {
+          refreshHistory = await getRefreshHistory(10).catch(() => []);
+        }
+      }
     } catch (e) {
       error = friendlyError(e);
     } finally {
@@ -128,6 +169,98 @@
       window.open(result.checkout_url, "_blank");
     } catch (e) {
       error = friendlyError(e);
+    }
+  }
+
+  // --- Living Profile Actions ---
+
+  function isRefreshDisabled(): boolean {
+    if (!metadata?.next_refresh_available) return false;
+    return new Date(metadata.next_refresh_available) > new Date();
+  }
+
+  function refreshCountdown(): string {
+    if (!metadata?.next_refresh_available) return "";
+    const diff = new Date(metadata.next_refresh_available).getTime() - Date.now();
+    if (diff <= 0) return "";
+    const hours = Math.floor(diff / 3600000);
+    const mins = Math.floor((diff % 3600000) / 60000);
+    if (hours > 0) return `${hours}h ${mins}m`;
+    return `${mins}m`;
+  }
+
+  async function handleUploadAndRefresh() {
+    isRefreshing = true;
+    error = "";
+    refreshMessage = "";
+    try {
+      await uploadEditLog();
+      const result = await refreshLivingProfile();
+      refreshMessage = `${result.message} (${result.sections_updated} section${result.sections_updated !== 1 ? "s" : ""} updated)`;
+      editCount = 0;
+      await loadProfile();
+    } catch (e) {
+      error = friendlyError(e);
+    } finally {
+      isRefreshing = false;
+    }
+  }
+
+  async function handleRollback() {
+    isRollingBack = true;
+    error = "";
+    try {
+      await rollbackProfile();
+      await loadProfile();
+    } catch (e) {
+      error = friendlyError(e);
+    } finally {
+      isRollingBack = false;
+    }
+  }
+
+  async function handleSyncUp() {
+    isSyncing = true;
+    error = "";
+    try {
+      await syncProfileUp();
+      syncStatus = await getSyncStatus().catch(() => null);
+    } catch (e) {
+      error = friendlyError(e);
+    } finally {
+      isSyncing = false;
+    }
+  }
+
+  async function handleSyncDown() {
+    isSyncing = true;
+    error = "";
+    try {
+      await syncProfileDown();
+      syncStatus = await getSyncStatus().catch(() => null);
+    } catch (e) {
+      error = friendlyError(e);
+    } finally {
+      isSyncing = false;
+    }
+  }
+
+  async function handleExport() {
+    isExporting = true;
+    error = "";
+    try {
+      const content = await readProfileContent();
+      const blob = new Blob([JSON.stringify(content, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "noren-voice-profile.json";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      error = friendlyError(e);
+    } finally {
+      isExporting = false;
     }
   }
 
@@ -239,8 +372,8 @@
       </div>
     </div>
   {:else if overview?.is_server}
-    <!-- Server profile — metadata only -->
-    <div class="flex flex-col gap-3 h-full px-4 py-4">
+    <!-- Server profile -->
+    <div class="flex flex-col gap-3 h-full px-4 py-4 overflow-y-auto">
       <div class="p-3 bg-surface border border-secondary/20 rounded-lg">
         <p class="text-sm font-medium text-foreground">Voice profile on Noren servers</p>
         <p class="text-[10px] text-muted mt-1 leading-relaxed">
@@ -262,13 +395,86 @@
       <!-- Living Profile section -->
       {#if canLivingProfile()}
         <div class="p-3 bg-surface border border-border rounded-lg">
-          <div class="flex items-center gap-1.5">
+          <div class="flex items-center gap-1.5 mb-2">
             <div class="w-[5px] h-[5px] rounded-full bg-secondary animate-pulse"></div>
             <span class="text-[10px] text-secondary font-medium">Living Profile</span>
+            {#if editCount > 0}
+              <span class="ml-auto px-1.5 py-0.5 text-[9px] bg-secondary/10 text-secondary rounded-full font-medium">{editCount} pending edit{editCount !== 1 ? "s" : ""}</span>
+            {/if}
           </div>
-          <p class="text-[10px] text-muted mt-1 leading-relaxed">
-            Your profile refines automatically as you write. Manage edit tracking in the desktop app.
-          </p>
+
+          {#if refreshMessage}
+            <p class="text-[10px] text-secondary mb-2">{refreshMessage}</p>
+          {/if}
+
+          <div class="flex items-center gap-2">
+            <button
+              onclick={handleUploadAndRefresh}
+              disabled={isRefreshing || isRefreshDisabled()}
+              class="px-3 py-1 text-[10px] font-medium transition-colors cursor-pointer rounded
+                {isRefreshing || isRefreshDisabled()
+                  ? 'bg-surface text-muted border border-border cursor-not-allowed opacity-50'
+                  : 'bg-secondary text-white hover:bg-secondary/90'}"
+            >
+              {#if isRefreshing}
+                <span class="inline-flex items-center gap-1"><LoadingSpinner /> Refreshing</span>
+              {:else}
+                Upload & Refresh
+              {/if}
+            </button>
+
+            {#if metadata?.can_rollback}
+              <button
+                onclick={handleRollback}
+                disabled={isRollingBack}
+                class="px-3 py-1 text-[10px] border border-border hover:border-secondary transition-colors cursor-pointer text-muted hover:text-foreground rounded"
+              >
+                {isRollingBack ? "Rolling back..." : "Rollback"}
+              </button>
+            {/if}
+
+            {#if isRefreshDisabled()}
+              <span class="text-[9px] text-muted ml-auto">Available in {refreshCountdown()}</span>
+            {/if}
+          </div>
+
+          <!-- Refresh history -->
+          {#if refreshHistory.length > 0}
+            <button
+              onclick={() => { showHistory = !showHistory; }}
+              class="mt-2 text-[10px] text-muted hover:text-secondary cursor-pointer"
+            >
+              {showHistory ? "Hide" : "Show"} history ({refreshHistory.length})
+            </button>
+
+            {#if showHistory}
+              <div class="mt-2 flex flex-col gap-2">
+                {#each refreshHistory as entry}
+                  <div class="p-2 bg-tint border border-border rounded text-[10px]">
+                    <div class="flex items-center gap-2 mb-1">
+                      <span class="text-muted">{new Date(entry.created_at).toLocaleDateString()}</span>
+                      <span class="text-secondary font-medium">{entry.sections_updated} section{entry.sections_updated !== 1 ? "s" : ""}</span>
+                      {#if entry.rolled_back}
+                        <span class="px-1 py-0.5 text-[8px] bg-error/10 text-error rounded">rolled back</span>
+                      {/if}
+                    </div>
+                    {#if entry.observations.length > 0}
+                      <ul class="text-muted leading-relaxed ml-2">
+                        {#each entry.observations as obs}
+                          <li>{obs}</li>
+                        {/each}
+                      </ul>
+                    {/if}
+                    {#each entry.diffs as diff}
+                      <div class="mt-1 p-1.5 bg-surface rounded">
+                        <span class="text-[9px] text-secondary font-medium uppercase">{diff.section}</span>
+                      </div>
+                    {/each}
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          {/if}
         </div>
       {:else}
         <div class="p-2.5 bg-tint border border-secondary/10 rounded-lg">
@@ -285,6 +491,44 @@
         </div>
       {/if}
 
+      <!-- Sync section -->
+      {#if canSync()}
+        <div class="p-3 bg-surface border border-border rounded-lg">
+          <span class="text-[10px] font-medium text-muted uppercase tracking-wide">Sync</span>
+          <div class="flex items-center gap-2 mt-2">
+            <button
+              onclick={handleSyncUp}
+              disabled={isSyncing}
+              class="px-3 py-1 text-[10px] border border-border hover:border-secondary transition-colors cursor-pointer text-muted hover:text-foreground rounded"
+            >
+              Push
+            </button>
+            <button
+              onclick={handleSyncDown}
+              disabled={isSyncing}
+              class="px-3 py-1 text-[10px] border border-border hover:border-secondary transition-colors cursor-pointer text-muted hover:text-foreground rounded"
+            >
+              Pull
+            </button>
+            {#if isSyncing}
+              <LoadingSpinner />
+            {/if}
+          </div>
+          {#if syncStatus}
+            <div class="mt-2 text-[9px] text-muted">
+              {#if syncStatus.has_remote}
+                <span>v{syncStatus.remote_version}</span>
+                {#if syncStatus.updated_at}
+                  <span class="ml-2">Last synced: {new Date(syncStatus.updated_at).toLocaleDateString()}</span>
+                {/if}
+              {:else}
+                <span>No remote profile yet</span>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      {/if}
+
       <div class="flex-1"></div>
 
       {#if error}
@@ -296,7 +540,13 @@
       <div class="flex items-center justify-between shrink-0">
         <span class="text-[10px] text-muted">Stored on Noren servers</span>
         {#if canExport()}
-          <span class="text-[10px] text-muted">Export available in the desktop app</span>
+          <button
+            onclick={handleExport}
+            disabled={isExporting}
+            class="px-3 py-1.5 text-xs border border-border hover:border-secondary transition-colors cursor-pointer text-muted hover:text-foreground rounded-md"
+          >
+            {isExporting ? "Exporting..." : "Export"}
+          </button>
         {:else}
           <button
             onclick={() => handleUpgrade("export")}

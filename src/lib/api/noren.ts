@@ -108,6 +108,58 @@ export interface GoogleOAuthPollResult {
   complete: boolean;
 }
 
+export interface RefreshResponse {
+  refreshed: boolean;
+  sections_updated: number;
+  message: string;
+  observations: string[];
+  history_id: string;
+}
+
+export interface ProfileMetadata {
+  has_profile: boolean;
+  formats: string[];
+  created_at: string;
+  source: string;
+  last_extracted_at: string;
+  extraction_count: number;
+  next_refresh_available: string | null;
+  can_rollback: boolean;
+}
+
+export interface RefreshHistoryEntry {
+  id: string;
+  diffs: SectionDiff[];
+  observations: string[];
+  sections_updated: number;
+  edits_analyzed: number;
+  samples_analyzed: number;
+  generations_analyzed: number;
+  rolled_back: boolean;
+  created_at: string;
+}
+
+export interface SectionDiff {
+  section: string;
+  before: string;
+  after: string;
+}
+
+export interface SyncStatus {
+  has_remote: boolean;
+  remote_version: number;
+  updated_at: string | null;
+  local_checksum: string | null;
+}
+
+export interface EditLogEntry {
+  format: string;
+  original: string;
+  edited: string;
+  app: string;
+  timestamp: number;
+}
+
 // ============================================================
 // Storage helpers
 // ============================================================
@@ -725,6 +777,7 @@ export async function generate(params: {
   prompt: string;
   format: string;
   level: string;
+  mode?: "generate" | "adapt";
   context?: string;
   attachments?: string[];
 }): Promise<GenerateResult> {
@@ -737,6 +790,7 @@ export async function generate(params: {
         prompt: params.prompt,
         format: params.format,
         level: params.level,
+        mode: params.mode || "generate",
         context: params.context,
         attachments: params.attachments,
       }),
@@ -1198,4 +1252,76 @@ export async function fetchAnnouncements(since?: string): Promise<Announcement[]
   } catch {
     return [];
   }
+}
+
+// ============================================================
+// Edit logging — local storage + batch upload
+// ============================================================
+
+export async function logEdit(format: string, original: string, edited: string): Promise<void> {
+  const result = await chrome.storage.local.get("edit_log");
+  const log: EditLogEntry[] = result.edit_log || [];
+  log.push({ format, original, edited, app: "noren-ext", timestamp: Date.now() });
+  await chrome.storage.local.set({ edit_log: log });
+}
+
+export async function getEditLogCount(): Promise<number> {
+  const result = await chrome.storage.local.get("edit_log");
+  const log: EditLogEntry[] = result.edit_log || [];
+  return log.length;
+}
+
+export async function uploadEditLog(): Promise<void> {
+  const result = await chrome.storage.local.get("edit_log");
+  const log: EditLogEntry[] = result.edit_log || [];
+  if (log.length === 0) return;
+  await apiJson("/profile/upload-edits", {
+    method: "POST",
+    body: JSON.stringify({ edits: log }),
+  });
+  await chrome.storage.local.remove("edit_log");
+}
+
+// ============================================================
+// Living profile
+// ============================================================
+
+export async function refreshLivingProfile(): Promise<RefreshResponse> {
+  return apiJson<RefreshResponse>("/profile/refresh", { method: "POST" });
+}
+
+export async function getRefreshHistory(limit?: number, offset?: number): Promise<RefreshHistoryEntry[]> {
+  const params = new URLSearchParams();
+  if (limit !== undefined) params.set("limit", String(limit));
+  if (offset !== undefined) params.set("offset", String(offset));
+  const qs = params.toString();
+  return apiJson<RefreshHistoryEntry[]>(`/profile/refresh-history${qs ? `?${qs}` : ""}`);
+}
+
+export async function rollbackProfile(): Promise<void> {
+  await apiJson("/profile/voice/rollback", { method: "POST" });
+}
+
+// ============================================================
+// Full profile metadata
+// ============================================================
+
+export async function getProfileMetadata(): Promise<ProfileMetadata> {
+  return apiJson<ProfileMetadata>("/profile/voice/metadata");
+}
+
+// ============================================================
+// Sync
+// ============================================================
+
+export async function syncProfileUp(): Promise<void> {
+  await apiFetch("/sync/profile", { method: "PUT" });
+}
+
+export async function syncProfileDown(): Promise<void> {
+  await apiFetch("/sync/profile");
+}
+
+export async function getSyncStatus(): Promise<SyncStatus> {
+  return apiJson<SyncStatus>("/sync/status");
 }

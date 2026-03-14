@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { generate, generateComparison, listFormats, injectGeneratedText, getProfileOverview, createCheckout, type GenerateResult, type ComparisonResult } from "$lib/api/noren";
+  import { generate, generateComparison, listFormats, injectGeneratedText, getProfileOverview, createCheckout, logEdit, type GenerateResult, type ComparisonResult } from "$lib/api/noren";
   import { isFree } from "$lib/stores/subscription.svelte";
   import { friendlyError } from "$lib/utils/errors";
   import LoadingSpinner from "./LoadingSpinner.svelte";
@@ -10,9 +10,11 @@
   let prompt = $state("");
   let format = $state("general");
   let level: "strict" | "guided" | "light" = $state("guided");
+  let mode: "generate" | "adapt" = $state("generate");
   let contextText = $state("");
   let formats = $state<string[]>([]);
   let output = $state<GenerateResult | null>(null);
+  let editedText = $state("");
   let comparison = $state<ComparisonResult | null>(null);
   let compareMode = $state(false);
   let isGenerating = $state(false);
@@ -86,11 +88,13 @@
           prompt: prompt.trim(),
           format,
           level,
+          mode: mode !== "generate" ? mode : undefined,
           context: contextText || undefined,
           attachments: attachmentContents,
         });
       }
       if (output) {
+        editedText = output.text;
         weaveComplete = true;
         setTimeout(() => { weaveComplete = false; }, 1000);
         try {
@@ -112,15 +116,23 @@
 
   async function handleCopy() {
     if (!output) return;
-    await navigator.clipboard.writeText(output.text);
+    const text = editedText || output.text;
+    await navigator.clipboard.writeText(text);
+    if (editedText && editedText !== output.text) {
+      logEdit(format, output.text, editedText).catch(() => {});
+    }
     copied = true;
     setTimeout(() => { copied = false; }, 1500);
   }
 
   async function handleInject() {
     if (!output) return;
+    const text = editedText || output.text;
     try {
-      await injectGeneratedText(output.text);
+      if (editedText && editedText !== output.text) {
+        logEdit(format, output.text, editedText).catch(() => {});
+      }
+      await injectGeneratedText(text);
     } catch (e) {
       error = friendlyError(e);
     }
@@ -200,6 +212,18 @@
     </button>
 
     <div class="flex items-center gap-1.5 ml-auto">
+      <!-- Adapt toggle -->
+      <button
+        onclick={() => { mode = mode === "generate" ? "adapt" : "generate"; }}
+        class="px-2 py-1 text-[10px] transition-colors cursor-pointer rounded-md
+          {mode === 'adapt'
+            ? 'bg-secondary text-white font-medium'
+            : 'bg-surface text-muted border border-border hover:border-secondary hover:text-foreground'}"
+        title={mode === "adapt" ? "Adapts existing text to your voice" : "Switch to adapt mode: restyle existing text in your voice"}
+      >
+        Adapt
+      </button>
+
       <!-- Compare toggle -->
       <div class="relative">
         <button
@@ -298,7 +322,7 @@
         onkeydown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleGenerate(); }}
         class="w-full p-3 text-sm resize-none bg-transparent text-foreground placeholder-muted border-none focus:outline-none"
         rows={2}
-        placeholder="What do you want to write?"
+        placeholder={mode === "adapt" ? "Paste content to restyle in your voice..." : "What do you want to write?"}
         disabled={isGenerating}
       ></textarea>
       <div class="absolute bottom-2 right-2 text-[10px] text-muted pointer-events-none">
@@ -394,16 +418,23 @@
         </div>
       </div>
 
-      <div class="flex-1 p-4 rounded-lg overflow-y-auto output-accent-line" style="background:var(--color-warm-surface);border:1px solid rgba(0,0,0,0.04)">
-        <div class="animate-shimmer rounded-lg">
-          <p class="text-sm text-foreground whitespace-pre-wrap" style="line-height:1.75">{output.text}</p>
-        </div>
+      <div class="flex-1 rounded-lg overflow-y-auto output-accent-line" style="background:var(--color-warm-surface);border:1px solid rgba(0,0,0,0.04)">
+        <textarea
+          bind:value={editedText}
+          class="w-full h-full p-4 text-sm text-foreground bg-transparent resize-none border-none focus:outline-none selectable"
+          style="line-height:1.75"
+        ></textarea>
       </div>
 
       <div class="flex items-center">
-        <span class="font-mono text-[9px] text-muted mr-auto">
-          {output.input_tokens + output.output_tokens} tokens
-        </span>
+        <div class="flex items-center gap-2 mr-auto">
+          <span class="font-mono text-[9px] text-muted">
+            {output.input_tokens + output.output_tokens} tokens
+          </span>
+          {#if editedText !== output.text}
+            <span class="text-[9px] text-secondary font-medium">edited</span>
+          {/if}
+        </div>
         <div class="flex gap-2">
           <button
             onclick={handleCopy}
