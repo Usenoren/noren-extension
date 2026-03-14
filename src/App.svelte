@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getSettings, getContextText } from "$lib/api/noren";
+  import { getSettings, getContextText, getProfileOverview } from "$lib/api/noren";
   import { refresh as refreshSubscription } from "$lib/stores/subscription.svelte";
   import GenerateView from "$lib/components/GenerateView.svelte";
   import ChatView from "$lib/components/ChatView.svelte";
@@ -14,6 +14,7 @@
   let loading = $state(true);
   let showOnboarding = $state(false);
   let contextText = $state("");
+  let profileName = $state("");
 
   const navItems: { id: View; label: string; icon: string }[] = [
     { id: "generate", label: "Weave", icon: "pen" },
@@ -41,6 +42,12 @@
         // Fetch context text once, pass to both views
         const ctx = await getContextText();
         if (ctx) contextText = ctx;
+
+        // Fetch profile name for voice badge
+        try {
+          const overview = await getProfileOverview();
+          if (overview.exists && overview.name) profileName = overview.name;
+        } catch {}
 
         if (settings.noren_pro_logged_in) {
           refreshSubscription();
@@ -74,14 +81,14 @@
 {:else}
 <div class="flex flex-col h-screen overflow-hidden bg-background">
   <!-- Tab bar -->
-  <nav class="noise-texture flex items-center gap-1 px-3 py-2 shrink-0" style="background:var(--color-kon)">
+  <nav class="flex items-center gap-1 px-3 py-2 shrink-0 bg-surface border-b border-border">
     {#each navItems as item}
       <button
         onclick={() => { view = item.id; }}
-        class="relative z-[1] flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition-colors cursor-pointer
+        class="relative flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition-colors cursor-pointer
           {view === item.id
-            ? 'bg-[rgba(255,255,255,0.08)] text-[rgba(255,255,255,0.9)] font-medium'
-            : 'bg-transparent text-[rgba(255,255,255,0.4)] hover:bg-[rgba(255,255,255,0.05)] hover:text-[rgba(255,255,255,0.6)]'}"
+            ? 'text-accent font-medium'
+            : 'text-muted hover:bg-foreground/[0.04] hover:text-foreground'}"
       >
         {#if item.icon === "pen"}
           <svg class="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
@@ -101,13 +108,24 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
         {/if}
-        {item.label}
+        <span class="font-heading italic font-normal tracking-normal">{item.label}</span>
+        {#if view === item.id}
+          <span class="absolute bottom-0 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent"></span>
+        {/if}
       </button>
     {/each}
 
-    <span class="relative z-[1] ml-auto flex items-center gap-1.5" style="color:rgba(255,255,255,0.2)">
+    <span class="ml-auto flex items-center gap-1.5">
+      {#if profileName}
+        <div class="voice-badge">
+          <div class="voice-badge-dot"></div>
+          <span class="font-mono text-[8px] font-medium uppercase tracking-wide text-signal">{profileName}</span>
+        </div>
+      {/if}
       <AnnouncementBell />
-      <NorenMark width={12} height={14} />
+      <span style="color:var(--color-muted)">
+        <NorenMark width={12} height={14} />
+      </span>
     </span>
   </nav>
 
