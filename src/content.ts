@@ -36,7 +36,7 @@ function injectText(text: string) {
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
   } else if (el?.getAttribute("contenteditable") === "true") {
-    el.focus();
+    (el as HTMLElement).focus();
     document.execCommand("insertText", false, text);
   } else {
     document.execCommand("insertText", false, text);
