@@ -17,11 +17,11 @@
 
   function typeColor(type: string): string {
     switch (type) {
-      case "feature": return "bg-indigo-500/20 text-indigo-300";
-      case "update": return "bg-emerald-500/20 text-emerald-300";
-      case "promo": return "bg-amber-500/20 text-amber-300";
-      case "maintenance": return "bg-orange-500/20 text-orange-300";
-      default: return "bg-gray-500/20 text-gray-300";
+      case "feature": return "bg-primary/20 text-primary";
+      case "update": return "bg-secondary/20 text-secondary";
+      case "promo": return "bg-accent/20 text-accent";
+      case "maintenance": return "bg-warning/20 text-warning";
+      default: return "bg-muted/20 text-muted";
     }
   }
 
@@ -79,7 +79,7 @@
       <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/>
     </svg>
     {#if unreadCount > 0}
-      <span class="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-500 text-[5px] font-bold text-white flex items-center justify-center">
+      <span class="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-accent text-[5px] font-bold text-white flex items-center justify-center">
         {unreadCount > 9 ? "+" : unreadCount}
       </span>
     {/if}
@@ -87,23 +87,23 @@
 
   {#if open && announcements.length > 0}
     <div class="absolute top-full right-0 mt-1 w-[260px] max-h-[320px] overflow-y-auto
-                bg-[#1a1a2e] border border-white/10 rounded-lg shadow-xl z-50">
-      <div class="p-2 border-b border-white/10">
-        <h3 class="text-[9px] font-semibold uppercase tracking-wider text-white/40">What's New</h3>
+                bg-surface border border-border rounded-xl shadow-xl z-50">
+      <div class="p-2 border-b border-border">
+        <h3 class="text-[9px] font-semibold uppercase tracking-wider text-muted">What's New</h3>
       </div>
       <div class="flex flex-col">
         {#each announcements as a}
-          <div class="p-2 border-b border-white/5 last:border-0 {lastSeen && a.published_at > lastSeen ? 'bg-white/[0.02]' : ''}">
+          <div class="p-2 border-b border-border/50 last:border-0 {lastSeen && a.published_at > lastSeen ? 'bg-accent/[0.03]' : ''}">
             <div class="flex items-center gap-1 mb-0.5">
               <span class="text-[7px] font-semibold uppercase px-1 py-0.5 rounded-full {typeColor(a.type)}">
                 {a.type}
               </span>
-              <span class="text-[8px] text-white/30">
+              <span class="text-[8px] text-muted">
                 {new Date(a.published_at).toLocaleDateString()}
               </span>
             </div>
-            <h4 class="text-[11px] font-medium text-white/90 mb-0.5">{a.title}</h4>
-            <div class="text-[10px] text-white/50 leading-relaxed prose-compact">
+            <h4 class="text-[11px] font-medium text-foreground mb-0.5">{a.title}</h4>
+            <div class="text-[10px] text-muted leading-relaxed prose-compact">
               {@html renderMarkdown(a.body)}
             </div>
             {#if a.cta_url}
@@ -111,7 +111,7 @@
                 href={a.cta_url}
                 target="_blank"
                 rel="noopener"
-                class="inline-block mt-1 text-[9px] font-medium text-indigo-400 hover:text-indigo-300"
+                class="inline-block mt-1 text-[9px] font-medium text-secondary hover:text-foreground"
               >
                 {a.cta_label || "Learn more"} &rarr;
               </a>
@@ -139,7 +139,7 @@
     margin-bottom: 0;
   }
   .prose-compact :global(a) {
-    color: #818cf8;
+    color: var(--color-secondary);
     text-decoration: underline;
   }
 </style>

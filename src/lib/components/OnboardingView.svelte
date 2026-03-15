@@ -145,7 +145,7 @@
     <div class="relative flex flex-col items-center max-w-xs w-full animate-fade-in-up mt-4">
       <!-- Logo -->
       <div class="relative mb-8">
-        <div class="w-16 h-16 rounded-2xl flex items-center justify-center onboarding-logo-glow" style="color:var(--color-kon)">
+        <div class="w-16 h-16 rounded-2xl flex items-center justify-center onboarding-logo-glow" style="color:var(--color-primary)">
           <NorenMark width={36} height={43} />
         </div>
       </div>
@@ -168,7 +168,7 @@
       <!-- Primary CTA -->
       <button
         onclick={() => { screen = "signin"; }}
-        class="w-full mt-10 py-3 text-sm font-medium text-white transition-all cursor-pointer rounded-lg onboarding-cta"
+        class="w-full mt-10 py-3 text-sm font-medium text-white transition-all cursor-pointer rounded-md bg-accent hover:bg-accent-hover"
       >
         Get Started with Noren Pro
       </button>
@@ -257,7 +257,7 @@
       <button
         onclick={handleProAuth}
         disabled={loading || !email.trim() || !password.trim()}
-        class="w-full py-2 text-xs font-medium bg-secondary text-white hover:bg-secondary/90 transition-colors cursor-pointer disabled:opacity-50 rounded-md"
+        class="w-full py-2 text-xs font-medium bg-accent text-white hover:bg-accent-hover transition-colors cursor-pointer disabled:opacity-50 rounded-md"
       >
         {#if loading}
           <span class="inline-flex items-center gap-1"><LoadingSpinner /> {authMode === "signup" ? "Creating..." : "Signing in..."}</span>
@@ -268,7 +268,7 @@
 
       <!-- Error -->
       {#if error}
-        <div class="p-2 bg-tint border border-border rounded-lg text-xs text-muted leading-relaxed">
+        <div class="p-2 bg-tint border border-border rounded-xl text-xs text-muted leading-relaxed">
           {error}
         </div>
       {/if}
@@ -305,7 +305,7 @@
       <button
         onclick={handleVerifyOtp}
         disabled={otpLoading || !otpCode.trim()}
-        class="w-full py-2 text-xs font-medium bg-secondary text-white hover:bg-secondary/90 transition-colors cursor-pointer disabled:opacity-50 rounded-md"
+        class="w-full py-2 text-xs font-medium bg-accent text-white hover:bg-accent-hover transition-colors cursor-pointer disabled:opacity-50 rounded-md"
       >
         {#if otpLoading}
           <span class="inline-flex items-center gap-1"><LoadingSpinner /> Verifying...</span>
@@ -319,7 +319,7 @@
       {/if}
 
       {#if error}
-        <div class="p-2 bg-tint border border-border rounded-lg text-xs text-muted leading-relaxed">
+        <div class="p-2 bg-tint border border-border rounded-xl text-xs text-muted leading-relaxed">
           {error}
         </div>
       {/if}
@@ -346,15 +346,6 @@
 <style>
   .onboarding-logo-glow {
     box-shadow: 0 0 28px rgba(59, 107, 138, 0.3), 0 0 56px rgba(59, 107, 138, 0.1);
-  }
-
-  .onboarding-cta {
-    background: linear-gradient(135deg, #3B6B8A 0%, #2D5A75 100%);
-    box-shadow: 0 4px 16px rgba(59, 107, 138, 0.35), 0 1px 3px rgba(0, 0, 0, 0.15);
-  }
-  .onboarding-cta:hover {
-    background: linear-gradient(135deg, #4478A0 0%, #3B6B8A 100%);
-    box-shadow: 0 6px 24px rgba(59, 107, 138, 0.45), 0 2px 4px rgba(0, 0, 0, 0.15);
   }
 
   .onboarding-thread {

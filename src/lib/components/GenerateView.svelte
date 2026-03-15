@@ -239,7 +239,7 @@
           {/if}
         </button>
         {#if showCompareLock}
-          <div class="absolute top-full mt-1 right-0 z-10 p-2 bg-tint border border-secondary/20 rounded-lg whitespace-nowrap animate-fade-in-up" style="box-shadow: var(--shadow-dropdown)">
+          <div class="absolute top-full mt-1 right-0 z-10 p-2 bg-tint border border-secondary/20 rounded-xl whitespace-nowrap animate-fade-in-up" style="box-shadow: var(--shadow-dropdown)">
             <p class="text-[10px] text-muted">Compare is a <span class="text-secondary font-medium">Pro</span> feature.</p>
             <button
               onclick={async () => { try { const r = await createCheckout("pro"); if (r.checkout_url !== "dev://granted") window.open(r.checkout_url, "_blank"); } catch {} }}
@@ -282,7 +282,7 @@
 
   <!-- No profile nudge -->
   {#if !hasProfile}
-    <div class="flex items-center gap-2 mx-4 mb-3 p-2 bg-tint border border-secondary/20 rounded-lg">
+    <div class="flex items-center gap-2 mx-4 mb-3 p-2 bg-tint border border-secondary/20 rounded-xl">
       <p class="flex-1 text-[10px] text-muted leading-relaxed">
         No voice profile yet, output will be generic.
         <button
@@ -308,7 +308,7 @@
           </div>
           <div class="flex flex-col min-h-0">
             <span class="text-[10px] font-medium text-muted mb-1 uppercase tracking-wide">Without voice</span>
-            <div class="flex-1 p-4 bg-surface border border-border rounded-lg overflow-y-auto opacity-75">
+            <div class="flex-1 p-4 bg-surface border border-border rounded-xl overflow-y-auto opacity-75">
               <div class="animate-shimmer rounded-lg">
                 <p class="text-xs text-foreground whitespace-pre-wrap" style="line-height:1.75">{comparison.without_voice.text}</p>
               </div>
@@ -394,7 +394,7 @@
 
   <!-- Error -->
   {#if error}
-    <div class="mx-4 mb-2 p-3 bg-tint border border-border rounded-lg text-xs text-muted leading-relaxed shrink-0">
+    <div class="mx-4 mb-2 p-3 bg-tint border border-border rounded-xl text-xs text-muted leading-relaxed shrink-0">
       {error}
     </div>
   {/if}
@@ -403,7 +403,7 @@
   <div class="shrink-0 border-t border-border px-4 py-3">
     <!-- Context banner -->
     {#if contextText}
-      <div class="flex items-start gap-2 mb-2 px-3 py-2 bg-tint/50 border border-border rounded-lg text-xs">
+      <div class="flex items-start gap-2 mb-2 px-3 py-2 bg-tint/50 border border-border rounded-xl text-xs">
         <div class="flex-1 min-w-0">
           <span class="font-medium text-secondary">Context:</span>
           <span class="text-muted ml-1">

@@ -306,14 +306,14 @@
 
         <button
           onclick={() => { isCreating = true; }}
-          class="px-4 py-2 text-xs font-medium bg-primary text-white hover:bg-primary-hover transition-colors cursor-pointer rounded-lg"
+          class="px-4 py-2 text-xs font-medium bg-accent text-white hover:bg-accent-hover transition-colors cursor-pointer rounded-md"
         >
           Write My Profile
         </button>
       </div>
 
       <!-- AI Extraction nudge -->
-      <div class="mx-4 mb-4 p-3 bg-tint border border-secondary/20 rounded-lg">
+      <div class="mx-4 mb-4 p-3 bg-tint border border-secondary/20 rounded-xl">
         <p class="text-[10px] text-muted leading-relaxed">
           <span class="text-secondary font-medium">Don't want to write it yourself?</span> AI Extraction analyzes your real writing — sentence patterns, vocabulary, rhetorical style — and builds your profile automatically.
         </p>
@@ -365,7 +365,7 @@
         </button>
         <button
           onclick={handleCreate}
-          class="px-3 py-1.5 text-xs font-medium bg-primary text-white hover:bg-primary-hover transition-colors cursor-pointer rounded-md"
+          class="px-3 py-1.5 text-xs font-medium bg-accent text-white hover:bg-accent-hover transition-colors cursor-pointer rounded-md"
         >
           Save Profile
         </button>
@@ -374,7 +374,7 @@
   {:else if overview?.is_server}
     <!-- Server profile -->
     <div class="flex flex-col gap-3 h-full px-4 py-4 overflow-y-auto">
-      <div class="p-3 bg-surface border border-secondary/20 rounded-lg">
+      <div class="p-3 bg-surface border border-secondary/20 rounded-xl">
         <p class="text-sm font-medium text-foreground">Voice profile on Noren servers</p>
         <p class="text-[10px] text-muted mt-1 leading-relaxed">
           Your extracted profile is securely stored on Noren servers and used automatically when generating text.
@@ -382,7 +382,7 @@
       </div>
 
       {#if overview.formats.length > 0}
-        <div class="p-3 bg-surface border border-border rounded-lg">
+        <div class="p-3 bg-surface border border-border rounded-xl">
           <span class="text-[10px] font-medium text-muted uppercase tracking-wide">Formats</span>
           <div class="flex gap-1.5 mt-1.5 flex-wrap">
             {#each overview.formats as fmt}
@@ -394,7 +394,7 @@
 
       <!-- Living Profile section -->
       {#if canLivingProfile()}
-        <div class="p-3 bg-surface border border-border rounded-lg">
+        <div class="p-3 bg-surface border border-border rounded-xl">
           <div class="flex items-center gap-1.5 mb-2">
             <div class="w-[5px] h-[5px] rounded-full bg-secondary animate-pulse"></div>
             <span class="text-[10px] text-secondary font-medium">Living Profile</span>
@@ -477,14 +477,14 @@
           {/if}
         </div>
       {:else}
-        <div class="p-2.5 bg-tint border border-secondary/10 rounded-lg">
+        <div class="p-2.5 bg-tint border border-secondary/10 rounded-xl">
           <p class="text-[10px] font-medium text-secondary">Living Profile</p>
           <p class="text-[10px] text-muted leading-relaxed mt-0.5">
             Your profile evolves as you write. Noren tracks your edits and suggests refinements automatically.
           </p>
           <button
             onclick={() => handleUpgrade("pro")}
-            class="mt-2 px-3 py-1 text-[10px] font-medium bg-secondary text-white hover:bg-secondary/90 transition-colors cursor-pointer rounded uppercase tracking-wide"
+            class="mt-2 px-3 py-1 text-[10px] font-medium bg-accent text-white hover:bg-accent-hover transition-colors cursor-pointer rounded uppercase tracking-wide"
           >
             Upgrade to Pro
           </button>
@@ -493,7 +493,7 @@
 
       <!-- Sync section -->
       {#if canSync()}
-        <div class="p-3 bg-surface border border-border rounded-lg">
+        <div class="p-3 bg-surface border border-border rounded-xl">
           <span class="text-[10px] font-medium text-muted uppercase tracking-wide">Sync</span>
           <div class="flex items-center gap-2 mt-2">
             <button
@@ -532,7 +532,7 @@
       <div class="flex-1"></div>
 
       {#if error}
-        <div class="p-2 bg-tint border border-border rounded-lg text-[10px] text-error">
+        <div class="p-2 bg-tint border border-border rounded-xl text-[10px] text-error">
           {error}
         </div>
       {/if}
@@ -643,7 +643,7 @@
             </button>
             <button
               onclick={handleSave}
-              class="px-3 py-1.5 text-xs font-medium bg-primary text-white hover:bg-primary-hover transition-colors cursor-pointer rounded-md"
+              class="px-3 py-1.5 text-xs font-medium bg-accent text-white hover:bg-accent-hover transition-colors cursor-pointer rounded-md"
             >
               Save
             </button>
@@ -671,7 +671,7 @@
       </div>
 
       {#if error}
-        <div class="mx-4 mb-2 p-2 bg-tint border border-border rounded-lg text-[10px] text-error">
+        <div class="mx-4 mb-2 p-2 bg-tint border border-border rounded-xl text-[10px] text-error">
           {error}
         </div>
       {/if}
@@ -680,7 +680,7 @@
       <div class="px-4 pb-4 flex flex-col gap-2 shrink-0">
         <!-- Extraction nudge (if no format contexts) -->
         {#if overview && overview.formats.length === 0 && !isEditing}
-          <div class="p-2.5 bg-tint border border-secondary/15 rounded-lg">
+          <div class="p-2.5 bg-tint border border-secondary/15 rounded-xl">
             <p class="text-[10px] text-muted leading-relaxed">
               <span class="text-secondary font-medium">Want format-specific voices?</span> AI Extraction analyzes your writing samples and creates context-aware profiles for email, social media, long-form, and more.
             </p>
@@ -708,7 +708,7 @@
 
         <!-- Living Profile + Sync nudge -->
         {#if !isPro() && !isEditing}
-          <div class="p-2.5 bg-tint border border-secondary/10 rounded-lg flex gap-3">
+          <div class="p-2.5 bg-tint border border-secondary/10 rounded-xl flex gap-3">
             <div class="flex-1">
               <p class="text-[10px] font-medium text-secondary">Noren Pro</p>
               <p class="text-[10px] text-muted leading-relaxed mt-0.5">
@@ -717,7 +717,7 @@
             </div>
             <button
               onclick={() => handleUpgrade("pro")}
-              class="self-center px-3 py-1.5 text-[10px] font-medium bg-secondary text-white hover:bg-secondary/90 transition-colors cursor-pointer rounded-md uppercase tracking-wide shrink-0"
+              class="self-center px-3 py-1.5 text-[10px] font-medium bg-accent text-white hover:bg-accent-hover transition-colors cursor-pointer rounded-md uppercase tracking-wide shrink-0"
             >
               Upgrade
             </button>

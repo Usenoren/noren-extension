@@ -551,7 +551,7 @@
       <!-- Noren Pro section -->
       {#if settings.noren_pro_logged_in && proStatus}
         <div class="flex flex-col gap-3">
-          <div class="p-3 bg-tint border border-secondary/30 rounded-lg">
+          <div class="p-3 bg-tint border border-secondary/30 rounded-xl">
             <div class="flex items-center justify-between mb-2">
               <span class="text-xs font-medium text-secondary">
                 {subscription?.tier === "pro" ? "Noren Pro" : "Free"}
@@ -637,7 +637,7 @@
           <button
             onclick={handleVerifyOtp}
             disabled={otpLoading || !otpCode.trim()}
-            class="w-full py-2 text-xs font-medium bg-secondary text-white hover:bg-secondary/90 transition-colors cursor-pointer disabled:opacity-50 rounded-md"
+            class="w-full py-2 text-xs font-medium bg-accent text-white hover:bg-accent-hover transition-colors cursor-pointer disabled:opacity-50 rounded-md"
           >
             {#if otpLoading}
               <span class="inline-flex items-center gap-1"><LoadingSpinner /> Verifying...</span>
@@ -651,7 +651,7 @@
           {/if}
 
           {#if error}
-            <div class="p-2 bg-tint border border-border rounded-lg text-xs text-muted leading-relaxed">
+            <div class="p-2 bg-tint border border-border rounded-xl text-xs text-muted leading-relaxed">
               {error}
             </div>
           {/if}
@@ -740,7 +740,7 @@
           <button
             onclick={handleProAuth}
             disabled={proLoading || !proEmail.trim() || !proPassword.trim()}
-            class="w-full py-2 text-xs font-medium bg-secondary text-white hover:bg-secondary/90 transition-colors cursor-pointer disabled:opacity-50 rounded-md"
+            class="w-full py-2 text-xs font-medium bg-accent text-white hover:bg-accent-hover transition-colors cursor-pointer disabled:opacity-50 rounded-md"
           >
             {#if proLoading}
               <span class="inline-flex items-center gap-1"><LoadingSpinner /> {authMode === "signup" ? "Creating..." : "Signing in..."}</span>
@@ -1024,7 +1024,7 @@
               <button
                 onclick={handleSaveKey}
                 disabled={isSaving}
-                class="px-3 py-1.5 text-xs bg-primary text-white hover:bg-primary-hover transition-colors cursor-pointer disabled:opacity-50 rounded-md font-medium"
+                class="px-3 py-1.5 text-xs bg-accent text-white hover:bg-accent-hover transition-colors cursor-pointer disabled:opacity-50 rounded-md font-medium"
               >
                 {isSaving ? "Saving..." : isClaudeToken ? "Save Token" : "Save Key"}
               </button>
@@ -1032,7 +1032,7 @@
           {/if}
         </div>
       {:else}
-        <div class="p-2 bg-tint border border-border rounded-lg">
+        <div class="p-2 bg-tint border border-border rounded-xl">
           <p class="text-xs text-muted">
             No API key needed — {settings.provider.name} runs locally.
           </p>
@@ -1056,14 +1056,14 @@
 
     <!-- Test result -->
     {#if testResult}
-      <div class="p-2 bg-tint border border-signal/30 rounded-lg text-xs text-signal">
+      <div class="p-2 bg-tint border border-signal/30 rounded-xl text-xs text-signal">
         {testResult}
       </div>
     {/if}
 
     <!-- Error -->
     {#if error}
-      <div class="p-2 bg-tint border border-border rounded-lg text-xs text-muted leading-relaxed">
+      <div class="p-2 bg-tint border border-border rounded-xl text-xs text-muted leading-relaxed">
         {error}
       </div>
     {/if}
