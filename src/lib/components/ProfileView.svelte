@@ -374,7 +374,7 @@
   {:else if overview?.is_server}
     <!-- Server profile -->
     <div class="flex flex-col gap-3 h-full px-4 py-4 overflow-y-auto">
-      <div class="p-3 bg-surface border border-secondary/20 rounded-xl">
+      <div class="p-3 card-hero">
         <p class="text-sm font-medium text-foreground">Voice profile on Noren servers</p>
         <p class="text-[10px] text-muted mt-1 leading-relaxed">
           Your extracted profile is securely stored on Noren servers and used automatically when generating text.

@@ -110,7 +110,7 @@
         {/if}
         <span class="font-heading italic font-normal tracking-normal">{item.label}</span>
         {#if view === item.id}
-          <span class="absolute bottom-0 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent"></span>
+          <span class="absolute bottom-0 left-1/2 -translate-x-1/2 w-4 h-[2px] rounded-full bg-accent" style="box-shadow: 0 0 6px var(--color-accent-glow)"></span>
         {/if}
       </button>
     {/each}
