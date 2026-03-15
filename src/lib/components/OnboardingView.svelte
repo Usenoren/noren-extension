@@ -151,7 +151,7 @@
       </div>
 
       <!-- Headline -->
-      <h1 class="font-heading text-[26px] text-foreground tracking-tight text-center leading-tight">
+      <h1 class="text-display font-heading text-foreground tracking-tight text-center leading-tight">
         Personalise the Weave
       </h1>
       <p class="text-[13px] text-muted text-center mt-3 leading-relaxed">
@@ -186,7 +186,7 @@
     <!-- Screen 2: Noren Pro Sign In -->
     <div class="flex flex-col gap-4 max-w-xs w-full animate-fade-in-up">
       <div class="text-center mb-2">
-        <h2 class="font-heading text-lg text-foreground">Sign in to Noren Pro</h2>
+        <h2 class="text-heading font-heading text-foreground">Sign in to Noren Pro</h2>
         <p class="text-xs text-muted mt-1">No API key needed — we handle inference for you</p>
       </div>
 
@@ -284,9 +284,9 @@
 
   {:else if screen === "otp"}
     <!-- Screen 3: OTP Verification -->
-    <div class="flex flex-col gap-4 max-w-xs w-full animate-fade-in-up">
+    <div class="card-hero flex flex-col gap-4 max-w-xs w-full animate-fade-in-up">
       <div class="text-center mb-2">
-        <h2 class="font-heading text-lg text-foreground">Verify your email</h2>
+        <h2 class="text-heading font-heading text-foreground">Verify your email</h2>
         <p class="text-xs text-muted mt-1">
           We sent a verification code to <span class="font-medium text-foreground">{email}</span>
         </p>

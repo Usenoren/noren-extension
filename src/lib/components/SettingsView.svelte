@@ -522,7 +522,7 @@
   {:else}
     <!-- Inference Mode Toggle -->
     <div>
-      <span class="block text-xs font-medium text-muted mb-2 uppercase tracking-wide">Inference</span>
+      <span class="section-label mb-2">Inference</span>
       <div class="flex gap-1">
         <button
           onclick={() => { showProSection = false; handleModeSwitch("byok"); }}
@@ -551,7 +551,7 @@
       <!-- Noren Pro section -->
       {#if settings.noren_pro_logged_in && proStatus}
         <div class="flex flex-col gap-3">
-          <div class="p-3 bg-tint border border-secondary/30 rounded-xl">
+          <div class="card-hero">
             <div class="flex items-center justify-between mb-2">
               <span class="text-xs font-medium text-secondary">
                 {subscription?.tier === "pro" ? "Noren Pro" : "Free"}
@@ -590,7 +590,7 @@
 
           {#if !subscription?.active || subscription.tier === "free"}
             <div>
-              <span class="block text-xs font-medium text-muted mb-2 uppercase tracking-wide">Subscription</span>
+              <span class="section-label mb-2">Subscription</span>
               <div class="flex flex-col gap-2">
                 {#each tiers as t}
                   <button
@@ -753,7 +753,7 @@
     {:else}
       <!-- BYOK section -->
       <div>
-        <span class="block text-xs font-medium text-muted mb-2 uppercase tracking-wide">Provider</span>
+        <span class="section-label mb-2">Provider</span>
         <div class="flex flex-wrap gap-1">
           {#each presets as p}
             <button
@@ -771,7 +771,7 @@
 
       {#if selectedPreset === "ollama" || isCustom}
         <div>
-          <span class="block text-xs font-medium text-muted mb-1.5 uppercase tracking-wide">Base URL</span>
+          <span class="section-label mb-1.5">Base URL</span>
           <div class="flex gap-2">
             <input
               type="text"
@@ -790,7 +790,7 @@
       {/if}
 
       <div>
-        <span class="block text-xs font-medium text-muted mb-1.5 uppercase tracking-wide">Model</span>
+        <span class="section-label mb-1.5">Model</span>
         {#if isAnthropicType && claudeModelsLoading}
           <div class="flex items-center gap-2 text-xs text-muted">
             <LoadingSpinner /> Fetching models...
@@ -930,7 +930,7 @@
       {#if isAnthropicType}
         <div>
           <div class="flex items-center justify-between">
-            <span class="text-xs font-medium text-muted uppercase tracking-wide">Extended Thinking</span>
+            <span class="section-label">Extended Thinking</span>
             <button
               onclick={handleThinkingToggle}
               class="relative w-9 h-5 rounded-full transition-colors cursor-pointer {extendedThinking ? 'bg-secondary' : 'bg-border'}"
@@ -967,7 +967,7 @@
             </p>
           {/if}
           <div class="flex items-center justify-between mb-1.5">
-            <span class="text-xs font-medium text-muted uppercase tracking-wide">
+            <span class="section-label">
               {isClaudeToken ? "Setup Token" : "API Key"}
               <span class="ml-1.5 text-[10px] font-normal normal-case tracking-normal {settings.has_key ? 'text-signal' : 'text-muted'}">
                 {#if settings.has_key && keychainActive}
@@ -1071,7 +1071,7 @@
     <!-- Click Behavior -->
     <div>
       <div class="flex items-center justify-between">
-        <span class="text-xs font-medium text-muted uppercase tracking-wide">Click Opens</span>
+        <span class="section-label">Click Opens</span>
         <div class="flex items-center gap-2">
           <span class="text-[10px] text-muted">{clickOpensSidepanel ? "Side Panel" : "Popup"}</span>
           <button
@@ -1089,7 +1089,7 @@
 
     <!-- Info -->
     <div class="mt-auto">
-      <div class="divider"></div>
+      <div class="divider-thread"></div>
       <p class="text-[10px] text-muted leading-relaxed pt-3">
         {#if showProSection}
           Noren Pro handles inference on our servers. No API key needed. Usage resets monthly.

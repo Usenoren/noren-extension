@@ -397,7 +397,7 @@
         <div class="p-3 bg-surface border border-border rounded-xl">
           <div class="flex items-center gap-1.5 mb-2">
             <div class="w-[5px] h-[5px] rounded-full bg-secondary animate-pulse"></div>
-            <span class="text-[10px] text-secondary font-medium">Living Profile</span>
+            <span class="text-subhead text-secondary">Living Profile</span>
             {#if editCount > 0}
               <span class="ml-auto px-1.5 py-0.5 text-[9px] bg-secondary/10 text-secondary rounded-full font-medium">{editCount} pending edit{editCount !== 1 ? "s" : ""}</span>
             {/if}
@@ -478,7 +478,7 @@
         </div>
       {:else}
         <div class="p-2.5 bg-tint border border-secondary/10 rounded-xl">
-          <p class="text-[10px] font-medium text-secondary">Living Profile</p>
+          <p class="text-subhead text-secondary">Living Profile</p>
           <p class="text-[10px] text-muted leading-relaxed mt-0.5">
             Your profile evolves as you write. Noren tracks your edits and suggests refinements automatically.
           </p>
@@ -565,10 +565,10 @@
       <div class="flex items-center gap-1 px-4 py-3 border-b border-border shrink-0 overflow-x-auto">
         <button
           onclick={() => switchTab("core")}
-          class="px-2.5 py-1 text-[10px] uppercase tracking-wide cursor-pointer rounded-md transition-colors shrink-0
+          class="px-2.5 py-1.5 text-[10px] uppercase tracking-wide cursor-pointer transition-colors shrink-0
             {activeTab === 'core'
-              ? 'bg-primary/10 text-primary font-medium'
-              : 'text-muted hover:text-foreground hover:bg-tint'}"
+              ? 'border-b-2 border-accent text-accent font-medium'
+              : 'border-b-2 border-transparent text-muted hover:text-foreground'}"
         >
           Core Identity
         </button>
@@ -577,10 +577,10 @@
           {#each overview.formats as fmt}
             <button
               onclick={() => switchTab(fmt)}
-              class="px-2.5 py-1 text-[10px] uppercase tracking-wide cursor-pointer rounded-md transition-colors shrink-0
+              class="px-2.5 py-1.5 text-[10px] uppercase tracking-wide cursor-pointer transition-colors shrink-0
                 {activeTab === fmt
-                  ? 'bg-secondary/10 text-secondary font-medium'
-                  : 'text-muted hover:text-foreground hover:bg-tint'}"
+                  ? 'border-b-2 border-accent text-accent font-medium'
+                  : 'border-b-2 border-transparent text-muted hover:text-foreground'}"
             >
               {fmt}
             </button>
