@@ -4,6 +4,7 @@
   import { friendlyError } from "$lib/utils/errors";
   import LoadingSpinner from "./LoadingSpinner.svelte";
   import NorenMark from "./NorenMark.svelte";
+  import loomIdleUrl from "../../assets/loom-idle.png";
 
   let { initialContext = "", oncontextused }: { initialContext?: string; oncontextused?: () => void } = $props();
 
@@ -24,8 +25,6 @@
   let hasProfile = $state(true);
   let showCompareLock = $state(false);
   let fileInput: HTMLInputElement | undefined = $state();
-
-  const levels = ["strict", "guided", "light"] as const;
 
   // --- Init ---
   $effect(() => {
@@ -49,10 +48,8 @@
         formats = f;
       }
     });
-
   });
 
-  // React to context changes from parent
   $effect(() => {
     if (initialContext) {
       contextText = initialContext;
@@ -105,6 +102,32 @@
           // Clipboard API may not be available
         }
       }
+    } catch (e) {
+      error = friendlyError(e);
+    } finally {
+      isGenerating = false;
+    }
+  }
+
+  async function handleCompare() {
+    if (!output || isGenerating) return;
+    if (isFree()) {
+      showCompareLock = true;
+      setTimeout(() => { showCompareLock = false; }, 3000);
+      return;
+    }
+
+    isGenerating = true;
+    error = "";
+
+    try {
+      comparison = await generateComparison({
+        prompt: prompt.trim(),
+        format,
+        context: contextText || undefined,
+        attachments: attachedFiles.length > 0 ? attachedFiles.map((f) => f.content) : undefined,
+      });
+      compareMode = true;
     } catch (e) {
       error = friendlyError(e);
     } finally {
@@ -180,13 +203,10 @@
 />
 
 <div class="flex flex-col h-full animate-fade-in-up">
-  <!-- View title -->
-  <div class="px-4 pt-4 pb-2 shrink-0">
-    <h1 class="font-heading italic text-[21px] text-foreground font-normal">Weave</h1>
-  </div>
-
   <!-- Toolbar -->
-  <div class="flex items-center gap-2 px-4 pb-3 shrink-0">
+  <div class="flex items-center gap-2 px-4 pt-4 pb-3 shrink-0">
+    <span class="font-heading italic text-[18px] mr-auto">Weave</span>
+
     <select
       bind:value={format}
       class="px-2 py-1 text-xs border border-border bg-surface text-foreground rounded-md focus:outline-none focus:border-secondary"
@@ -195,90 +215,35 @@
         <option value={fmt}>{fmt}</option>
       {/each}
     </select>
+
     <button
       onclick={handleAttachFile}
-      class="px-2 py-1 text-[10px] bg-surface text-muted border border-border hover:border-secondary hover:text-foreground transition-colors cursor-pointer rounded-md"
+      class="inline-flex items-center gap-1.5 bg-surface border border-border rounded-lg px-3 py-1.5 text-xs text-muted hover:text-foreground hover:border-secondary transition-colors cursor-pointer"
       title="Attach a file"
       disabled={attachedFiles.length >= 3}
     >
+      <svg class="w-[13px] h-[13px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
       Attach{#if attachedFiles.length > 0} ({attachedFiles.length}/3){/if}
     </button>
 
-    <div class="flex items-center gap-1.5 ml-auto">
-      <!-- Adapt toggle -->
-      <button
-        onclick={() => { mode = mode === "generate" ? "adapt" : "generate"; }}
-        class="px-2 py-1 text-[10px] transition-colors cursor-pointer rounded-md
-          {mode === 'adapt'
-            ? 'bg-secondary text-white font-medium'
-            : 'bg-surface text-muted border border-border hover:border-secondary hover:text-foreground'}"
-        title={mode === "adapt" ? "Adapts existing text to your voice" : "Switch to adapt mode: restyle existing text in your voice"}
-      >
-        Adapt
+    <button
+      onclick={() => { mode = mode === "generate" ? "adapt" : "generate"; }}
+      class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors cursor-pointer rounded-lg
+        {mode === 'adapt'
+          ? 'bg-[var(--color-primary-muted)] text-foreground border border-[rgba(90,154,194,0.15)]'
+          : 'bg-surface text-muted border border-border hover:border-secondary hover:text-foreground'}"
+      title={mode === "adapt" ? "Adapts existing text to your voice" : "Switch to adapt mode: restyle existing text in your voice"}
+    >
+      <svg class="w-[13px] h-[13px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.85 0 114 4L7.5 20.5 2 22l1.5-5.5z"/></svg>
+      Adapt
+    </button>
+
+    {#if hasProfile}
+      <button class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-accent-wash border border-accent text-accent rounded-lg cursor-default">
+        <div class="voice-badge-dot"></div>
+        Voice
       </button>
-
-      <!-- Compare toggle -->
-      <div class="relative">
-        <button
-          onclick={() => {
-            if (isFree()) {
-              showCompareLock = true;
-              setTimeout(() => { showCompareLock = false; }, 3000);
-              return;
-            }
-            compareMode = !compareMode;
-          }}
-          class="px-2 py-1 text-[10px] transition-colors cursor-pointer rounded-md
-            {compareMode
-              ? 'bg-secondary text-white font-medium'
-              : 'bg-surface text-muted border border-border hover:border-secondary hover:text-foreground'}"
-          title={isFree() ? "Compare requires Pro" : "Compare with and without your voice"}
-        >
-          Compare
-          {#if isFree()}
-            <span class="ml-0.5 text-[8px] text-secondary font-medium">PRO</span>
-          {/if}
-        </button>
-        {#if showCompareLock}
-          <div class="absolute top-full mt-1 right-0 z-10 p-2 bg-tint border border-secondary/20 rounded-xl whitespace-nowrap animate-fade-in-up" style="box-shadow: var(--shadow-dropdown)">
-            <p class="text-[10px] text-muted">Compare is a <span class="text-secondary font-medium">Pro</span> feature.</p>
-            <button
-              onclick={async () => { try { const r = await createCheckout("pro"); if (r.checkout_url !== "dev://granted") window.open(r.checkout_url, "_blank"); } catch {} }}
-              class="mt-1 text-[10px] text-secondary font-medium cursor-pointer hover:text-foreground uppercase tracking-wide"
-            >Upgrade</button>
-          </div>
-        {/if}
-      </div>
-
-      {#if !compareMode}
-        <div class="flex gap-1">
-          {#each levels as lvl}
-            <button
-              onclick={() => { level = lvl; }}
-              class="px-1.5 py-1 text-[10px] transition-colors cursor-pointer uppercase tracking-wide rounded-md
-                {level === lvl
-                  ? 'bg-primary text-white font-medium'
-                  : 'bg-surface text-muted border border-border hover:border-secondary hover:text-foreground'}"
-              title={lvl === "strict"
-                ? "Strict: maximizes voice fidelity, may constrain creativity"
-                : lvl === "guided"
-                  ? "Guided: balances your voice with natural flow (recommended)"
-                  : "Light: uses your voice as a gentle guide, more creative freedom"}
-            >
-              {lvl}
-            </button>
-          {/each}
-        </div>
-      {/if}
-
-      <!-- Voice badge -->
-      {#if hasProfile}
-        <div class="voice-badge">
-          <div class="voice-badge-dot"></div>
-          <span class="font-mono text-[8px] font-medium uppercase tracking-wide text-signal">Voice</span>
-        </div>
-      {/if}
-    </div>
+    {/if}
   </div>
 
   <!-- No profile nudge -->
@@ -297,12 +262,12 @@
   <!-- Output area -->
   <div class="flex-1 min-h-0 overflow-y-auto px-4">
     {#if !comparison && !output}
-      <div class="flex-1 flex flex-col items-center justify-center gap-3">
-        <div class="opacity-15 animate-panel-sway" style="color: var(--color-primary)">
-          <NorenMark width={40} height={48} />
+      <div class="h-full flex flex-col items-center justify-center gap-5">
+        <img src={loomIdleUrl} alt="" class="w-[130px] opacity-50" />
+        <div class="flex flex-col items-center gap-1.5">
+          <p class="text-display text-foreground/75">Ready to weave</p>
+          <p class="text-xs text-muted">Your voice is loaded and ready</p>
         </div>
-        <p class="text-display text-foreground/80">Ready to weave</p>
-        <p class="text-xs text-muted">Your voice is loaded and ready</p>
       </div>
     {:else if comparison}
       <div class="flex flex-col gap-2 h-full animate-fabric-unfurl">
@@ -352,12 +317,8 @@
       </div>
     {:else if output}
       <div class="flex flex-col gap-2 h-full animate-fabric-unfurl">
-        <!-- Voice badge + format pills -->
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <span class="font-heading italic text-[11px] text-muted tracking-wide">{format}</span>
-            <span class="font-heading italic text-[11px] text-muted tracking-wide">{level}</span>
-          </div>
+        <div class="flex items-center gap-2">
+          <span class="font-heading italic text-[11px] text-muted tracking-wide">{format}</span>
         </div>
 
         <div class="flex-1 overflow-y-auto output-card output-weave-bg min-h-0">
@@ -369,7 +330,7 @@
         </div>
 
         <div class="flex items-center pb-2">
-          <div class="flex items-center gap-2 mr-auto">
+          <div class="flex items-center gap-2">
             <span class="font-mono text-[9px] text-muted">
               {output.input_tokens + output.output_tokens} tokens
             </span>
@@ -377,7 +338,33 @@
               <span class="text-[9px] text-secondary font-medium">edited</span>
             {/if}
           </div>
-          <div class="flex gap-2">
+
+          <div class="flex items-center gap-2 ml-auto">
+            <!-- Compare link -->
+            <div class="relative">
+              <button
+                onclick={handleCompare}
+                class="inline-flex items-center gap-1 text-[10px] text-muted hover:text-secondary transition-colors cursor-pointer"
+                title="Compare with and without your voice"
+                disabled={isGenerating}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="18" rx="1"/></svg>
+                Compare
+                {#if isFree()}
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-secondary opacity-60"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+                {/if}
+              </button>
+              {#if showCompareLock}
+                <div class="absolute bottom-full mb-1 right-0 z-10 p-2 bg-tint border border-secondary/20 rounded-xl whitespace-nowrap animate-fade-in-up" style="box-shadow: var(--shadow-dropdown)">
+                  <p class="text-[10px] text-muted">Compare is a <span class="text-secondary font-medium">Pro</span> feature.</p>
+                  <button
+                    onclick={async () => { try { const r = await createCheckout("pro"); if (r.checkout_url !== "dev://granted") window.open(r.checkout_url, "_blank"); } catch {} }}
+                    class="mt-1 text-[10px] text-secondary font-medium cursor-pointer hover:text-foreground uppercase tracking-wide"
+                  >Upgrade</button>
+                </div>
+              {/if}
+            </div>
+
             <button
               onclick={handleCopy}
               class="w-8 h-8 flex items-center justify-center border border-border hover:border-secondary transition-colors cursor-pointer text-muted hover:text-foreground rounded-md"
@@ -408,9 +395,8 @@
     </div>
   {/if}
 
-  <!-- Input bar (bottom-pinned) -->
+  <!-- Input bar -->
   <div class="shrink-0 border-t border-border px-4 py-3">
-    <!-- Context banner -->
     {#if contextText}
       <div class="flex items-start gap-2 mb-2 px-3 py-2 bg-tint/50 border border-border rounded-xl text-xs">
         <div class="flex-1 min-w-0">
@@ -427,7 +413,6 @@
       </div>
     {/if}
 
-    <!-- Attachments -->
     {#if attachedFiles.length > 0}
       <div class="flex items-center gap-1.5 flex-wrap mb-1.5">
         {#each attachedFiles as file, i}
