@@ -605,7 +605,7 @@ async function byokAnthropic(
   const body: Record<string, unknown> = {
     model: provider.model,
     max_tokens: thinking.enabled ? thinking.budget + 4096 : 4096,
-    system,
+    system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: userContent }],
   };
 
@@ -723,7 +723,7 @@ async function byokChat(
     const chatBody: Record<string, unknown> = {
       model: settings.provider.model,
       max_tokens: thinking.enabled ? thinking.budget + 4096 : 4096,
-      system,
+      system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
       messages: processed,
     };
     if (thinking.enabled) {
@@ -815,6 +815,138 @@ export async function generateComparison(params: {
       compare: true,
     }),
   });
+}
+
+// ============================================================
+// Repurpose — transform content across formats
+// ============================================================
+
+export interface RepurposeFormatResult {
+  format: string;
+  content: string;
+  input_tokens: number;
+  output_tokens: number;
+  passed: boolean;
+}
+
+export interface RepurposeResult {
+  results: RepurposeFormatResult[];
+  total_input_tokens: number;
+  total_output_tokens: number;
+}
+
+export async function repurpose(params: {
+  sourceContent: string;
+  sourceFormat: string;
+  targetFormats?: string[];
+}): Promise<RepurposeResult> {
+  const settings = await getSettings();
+
+  if (settings.inference_mode === "noren_pro" && settings.noren_pro_logged_in) {
+    const resp = await apiJson<{
+      results: RepurposeFormatResult[];
+      total_input_tokens: number;
+      total_output_tokens: number;
+    }>("/repurpose", {
+      method: "POST",
+      body: JSON.stringify({
+        source_content: params.sourceContent,
+        source_format: params.sourceFormat,
+        target_formats: params.targetFormats,
+      }),
+    });
+    return resp;
+  }
+
+  return byokRepurpose(params);
+}
+
+async function byokRepurpose(params: {
+  sourceContent: string;
+  sourceFormat: string;
+  targetFormats?: string[];
+}): Promise<RepurposeResult> {
+  const settings = await getSettings();
+  const apiKey = await getApiKey(settings.provider.name);
+
+  // Load voice profile
+  const profile = await readProfileContent();
+  const coreIdentity = profile?.core_identity || "";
+  const contexts = profile?.contexts || {};
+
+  // Resolve targets
+  const FORMAT_FAMILIES = [
+    ["blog", "article", "newsletter", "essay"],
+    ["tweet", "thread", "twitter"],
+    ["email", "slack"],
+    ["linkedin", "memo"],
+  ];
+  const sourceFamily = FORMAT_FAMILIES.find((f) => f.includes(params.sourceFormat));
+  const exclude = new Set(sourceFamily || [params.sourceFormat]);
+
+  const targets = params.targetFormats || Object.keys(contexts).filter((k) => !exclude.has(k));
+
+  if (targets.length === 0) {
+    throw new Error("No target formats available.");
+  }
+
+  const FORMAT_MAX_TOKENS: Record<string, number> = {
+    tweet: 256, twitter: 256, thread: 4096,
+    email: 2048, slack: 2048, linkedin: 1024, memo: 1024,
+    blog: 8192, article: 8192, essay: 8192, newsletter: 8192, longform: 8192,
+  };
+
+  // Fire all targets in parallel
+  const promises = targets.map(async (target): Promise<RepurposeFormatResult> => {
+    const contextLayer = contexts[target] || "";
+    const system = buildRepurposeSystemPrompt(coreIdentity, contextLayer, params.sourceFormat, target);
+    const maxTokens = FORMAT_MAX_TOKENS[target] || 4096;
+
+    let result: GenerateResult;
+    if (settings.provider.type === "anthropic") {
+      result = await byokAnthropic(settings.provider, apiKey, system, params.sourceContent);
+    } else {
+      result = await byokOpenAI(settings.provider, apiKey, system, params.sourceContent);
+    }
+
+    return {
+      format: target,
+      content: result.text,
+      input_tokens: result.input_tokens,
+      output_tokens: result.output_tokens,
+      passed: true,
+    };
+  });
+
+  const settled = await Promise.allSettled(promises);
+  const results: RepurposeFormatResult[] = [];
+  for (const item of settled) {
+    if (item.status === "fulfilled") results.push(item.value);
+  }
+
+  if (results.length === 0) {
+    throw new Error("All target format generations failed.");
+  }
+
+  return {
+    results,
+    total_input_tokens: results.reduce((s, r) => s + r.input_tokens, 0),
+    total_output_tokens: results.reduce((s, r) => s + r.output_tokens, 0),
+  };
+}
+
+function buildRepurposeSystemPrompt(
+  coreIdentity: string,
+  contextLayer: string,
+  sourceFormat: string,
+  targetFormat: string,
+): string {
+  let prompt = `You are going to write as a specific person. Their voice profile is below.\n\n${coreIdentity}`;
+  if (contextLayer) {
+    prompt += `\n\n${contextLayer}`;
+  }
+  prompt += `\n\nThe user provides content originally written as a ${sourceFormat}. Transform it into ${targetFormat} content. Capture the key ideas but follow the ${targetFormat} conventions entirely. Do not preserve the source structure. Write as if creating original ${targetFormat} content about these ideas.\n\nDo not copy the example quotes from the profile into your output. Do not use the anti-pattern words listed in the profile. Follow the format conventions in the profile. Output the text only, no meta-commentary.`;
+  return prompt;
 }
 
 // ============================================================
