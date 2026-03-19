@@ -3,13 +3,14 @@
   import { refresh as refreshSubscription } from "$lib/stores/subscription.svelte";
   import GenerateView from "$lib/components/GenerateView.svelte";
   import ChatView from "$lib/components/ChatView.svelte";
+  import RepurposeView from "$lib/components/RepurposeView.svelte";
   import ProfileView from "$lib/components/ProfileView.svelte";
   import SettingsView from "$lib/components/SettingsView.svelte";
   import OnboardingView from "$lib/components/OnboardingView.svelte";
   import NorenMark from "$lib/components/NorenMark.svelte";
   import AnnouncementBell from "$lib/components/AnnouncementBell.svelte";
 
-  type View = "generate" | "chat" | "profile" | "settings";
+  type View = "generate" | "repurpose" | "chat" | "profile" | "settings";
   let view: View = $state("generate");
   let loading = $state(true);
   let showOnboarding = $state(false);
@@ -18,6 +19,7 @@
 
   const navItems: { id: View; label: string; icon: string }[] = [
     { id: "generate", label: "Weave", icon: "pen" },
+    // { id: "repurpose", label: "Repurpose", icon: "refresh" },
     { id: "chat", label: "Chat", icon: "chat" },
     { id: "profile", label: "Profile", icon: "profile" },
     { id: "settings", label: "Settings", icon: "gear" },
@@ -98,6 +100,10 @@
           <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
           </svg>
+        {:else if item.icon === "refresh"}
+          <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 12c0-1.232-.046-2.453-.138-3.662a4.006 4.006 0 00-3.7-3.7 48.678 48.678 0 00-7.324 0 4.006 4.006 0 00-3.7 3.7c-.017.22-.032.441-.046.662M19.5 12l3-3m-3 3l-3-3m-12 3c0 1.232.046 2.453.138 3.662a4.006 4.006 0 003.7 3.7 48.656 48.656 0 007.324 0 4.006 4.006 0 003.7-3.7c.017-.22.032-.441.046-.662M4.5 12l3 3m-3-3l-3 3" />
+          </svg>
         {:else if item.icon === "profile"}
           <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
@@ -133,6 +139,9 @@
   <div class="flex-1 min-h-0 flex flex-col overflow-hidden relative">
     <div class="absolute inset-0 flex flex-col overflow-hidden" class:hidden={view !== "generate"}>
       <GenerateView initialContext={contextText} oncontextused={clearContext} />
+    </div>
+    <div class="absolute inset-0 flex flex-col overflow-hidden" class:hidden={view !== "repurpose"}>
+      <RepurposeView />
     </div>
     <div class="absolute inset-0 flex flex-col overflow-hidden" class:hidden={view !== "chat"}>
       <ChatView initialContext={contextText} oncontextused={clearContext} />

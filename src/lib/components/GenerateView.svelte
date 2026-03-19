@@ -248,9 +248,9 @@
 
   <!-- No profile nudge -->
   {#if !hasProfile}
-    <div class="flex items-center gap-2 mx-4 mb-3 p-2 bg-tint border border-secondary/20 rounded-xl">
+    <div class="flex items-center gap-2 mx-4 mb-3 p-2 bg-tint border border-secondary/20 rounded-lg">
       <p class="flex-1 text-[10px] text-muted leading-relaxed">
-        No voice profile yet, output will be generic.
+        No voice profile yet, output won't carry your voice.
         <button
           onclick={() => window.open("https://usenoren.ai", "_blank")}
           class="text-secondary font-medium cursor-pointer hover:text-foreground"
@@ -282,7 +282,7 @@
           </div>
           <div class="flex flex-col min-h-0">
             <span class="font-heading italic text-[11px] text-muted mb-1 tracking-wide">Without voice</span>
-            <div class="flex-1 p-4 bg-surface border border-border rounded-xl overflow-y-auto opacity-75">
+            <div class="flex-1 p-4 bg-surface border border-border rounded-lg overflow-y-auto opacity-75">
               <div class="animate-shimmer rounded-lg">
                 <p class="text-xs text-foreground whitespace-pre-wrap" style="line-height:1.75">{comparison.without_voice.text}</p>
               </div>
@@ -299,6 +299,7 @@
               onclick={handleCopy}
               class="w-8 h-8 flex items-center justify-center border border-border hover:border-secondary transition-colors cursor-pointer text-muted hover:text-foreground rounded-md"
               title={copied ? "Copied" : "Copy voiced"}
+              aria-label={copied ? "Copied" : "Copy voiced"}
             >
               {#if copied}
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
@@ -369,6 +370,7 @@
               onclick={handleCopy}
               class="w-8 h-8 flex items-center justify-center border border-border hover:border-secondary transition-colors cursor-pointer text-muted hover:text-foreground rounded-md"
               title={copied ? "Copied" : "Copy"}
+              aria-label={copied ? "Copied" : "Copy"}
             >
               {#if copied}
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>

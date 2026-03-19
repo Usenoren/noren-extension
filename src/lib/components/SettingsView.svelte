@@ -1092,12 +1092,12 @@
       <div class="divider-thread"></div>
       <p class="text-[10px] text-muted leading-relaxed pt-3">
         {#if showProSection}
-          Noren Pro handles inference on our servers. No API key needed. Usage resets monthly.
+          Your voice runs on Noren's servers, no API key needed. Usage resets each month.
         {:else}
           {#if keychainActive}
             API keys are secured in your macOS Keychain via the Noren desktop app.
           {:else}
-            API keys are stored in browser local storage. Install the <strong>Noren desktop app</strong> for Keychain-level security.
+            API keys are stored locally in your browser. Install the <strong>Noren desktop app</strong> for Keychain-level security.
           {/if}
           Any OpenAI-compatible provider works — Groq, Together, Mistral, OpenRouter, LM Studio, and more.
         {/if}

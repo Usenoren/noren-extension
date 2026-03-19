@@ -7,11 +7,11 @@
   } = $props();
 
   const actions = [
-    { id: "rewrite", label: "Rewrite" },
+    { id: "rewrite", label: "Adapt" },
     { id: "shorten", label: "Shorten" },
     { id: "expand", label: "Expand" },
     { id: "fix", label: "Fix" },
-    { id: "tone", label: "Tone" },
+    { id: "tone", label: "Voice" },
   ];
 </script>
 

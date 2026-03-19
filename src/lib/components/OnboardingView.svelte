@@ -152,7 +152,7 @@
 
       <!-- Headline -->
       <h1 class="text-display font-heading text-foreground tracking-tight text-center leading-tight">
-        Personalise the Weave
+        Personalize the Weave
       </h1>
       <p class="text-[13px] text-muted text-center mt-3 leading-relaxed">
         Noren learns how you write and produces text that sounds exactly like you.
