@@ -44,6 +44,45 @@ function injectText(text: string) {
 }
 
 // ============================================================
+// URL-based format detection for voice profile context layer
+// ============================================================
+
+function detectFormatFromUrl(): string | null {
+  const host = location.hostname;
+  if (host === "twitter.com" || host === "x.com" || host.endsWith(".x.com")) return "tweet";
+  if (host === "linkedin.com" || host.endsWith(".linkedin.com")) return "linkedin";
+  if (host === "mail.google.com" || host.match(/^outlook\./)) return "email";
+  if (host === "slack.com" || host === "app.slack.com") return "slack";
+  if (host.endsWith("medium.com") || host.endsWith("ghost.io")) return "blog";
+  if (host.endsWith("substack.com")) return "newsletter";
+  return null;
+}
+
+// ============================================================
+// Surrounding context extraction for expand action
+// ============================================================
+
+function getSurroundingContext(selection: Selection, maxChars = 200): string | null {
+  if (!selection.rangeCount) return null;
+  const range = selection.getRangeAt(0);
+  const container = range.commonAncestorContainer;
+  const fullText = (container.nodeType === Node.TEXT_NODE
+    ? container.parentElement?.textContent
+    : (container as HTMLElement).textContent) || "";
+  const selectedText = selection.toString().trim();
+  const idx = fullText.indexOf(selectedText);
+  if (idx === -1) return null;
+  const before = fullText.slice(Math.max(0, idx - maxChars), idx).trim();
+  const after = fullText.slice(idx + selectedText.length, idx + selectedText.length + maxChars).trim();
+  if (!before && !after) return null;
+  let ctx = "";
+  if (before) ctx += `...${before} `;
+  ctx += `[SELECTED] `;
+  if (after) ctx += `${after}...`;
+  return ctx;
+}
+
+// ============================================================
 // Selection Toolbar — appears on text selection
 // ============================================================
 
@@ -158,10 +197,20 @@ async function handleQuickAction(action: string, text: string) {
   document.body.appendChild(toolbarMount.host);
 
   try {
+    // Gather context signals for voice-aware routing
+    const detectedFormat = detectFormatFromUrl();
+    let surroundingContext: string | null = null;
+    if (action === "expand") {
+      const sel = window.getSelection();
+      if (sel) surroundingContext = getSurroundingContext(sel);
+    }
+
     const response = await chrome.runtime.sendMessage({
       type: "quick-action",
       action,
       text,
+      detectedFormat,
+      surroundingContext,
     });
 
     dismissToolbar();

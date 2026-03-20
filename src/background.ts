@@ -75,18 +75,19 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   }
 });
 
-// Quick action prompt templates
-const QUICK_ACTION_PROMPTS: Record<string, (text: string) => string> = {
-  rewrite: (text) =>
-    `Rewrite the following text, keeping the same meaning but improving clarity and flow. Return ONLY the rewritten text, no explanations:\n\n${text}`,
+// Quick action prompt templates (voice-aware: shorten/expand inject profile, fix does not)
+const QUICK_ACTION_PROMPTS: Record<string, (text: string, surroundingContext?: string | null) => string> = {
   shorten: (text) =>
-    `Make the following text more concise while keeping the key meaning. Return ONLY the shortened text:\n\n${text}`,
-  expand: (text) =>
-    `Expand the following text with more detail and depth. Return ONLY the expanded text:\n\n${text}`,
+    `Make this more concise while preserving the core meaning and my voice. Return only the shortened text.\n\n${text}`,
+  expand: (text, surroundingContext) => {
+    let prompt = `Expand this with more detail and depth, writing in my voice. Return only the expanded text.`;
+    if (surroundingContext) {
+      prompt += `\n\nSurrounding context (for coherence, do not include this in your output):\n${surroundingContext}`;
+    }
+    return `${prompt}\n\n${text}`;
+  },
   fix: (text) =>
-    `Fix any grammar, spelling, and punctuation errors in the following text. Return ONLY the corrected text:\n\n${text}`,
-  tone: (text) =>
-    `Adjust the tone of the following text to be more professional and polished. Return ONLY the adjusted text:\n\n${text}`,
+    `Fix grammar, spelling, and punctuation. Make no stylistic changes. Return only the corrected text.\n\n${text}`,
 };
 
 // Message relay
@@ -118,17 +119,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
-  // Quick action from selection toolbar
+  // Quick action from selection toolbar (voice-aware)
   if (message.type === "quick-action") {
-    const { action, text } = message;
-    const promptFn = QUICK_ACTION_PROMPTS[action] || QUICK_ACTION_PROMPTS.rewrite;
+    const { action, text, detectedFormat, surroundingContext } = message;
+    const promptFn = QUICK_ACTION_PROMPTS[action] || QUICK_ACTION_PROMPTS.shorten;
 
     (async () => {
       try {
         const result = await generate({
-          prompt: promptFn(text),
-          format: "general",
+          prompt: promptFn(text, surroundingContext),
+          format: action !== "fix" ? (detectedFormat || "general") : "general",
           level: "guided",
+          quickAction: action,
         });
         sendResponse({ result: result.text });
       } catch (e) {

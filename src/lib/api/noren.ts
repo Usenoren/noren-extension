@@ -537,6 +537,7 @@ async function byokGenerate(params: {
   context?: string;
   attachments?: string[];
   systemPrompt?: string;
+  quickAction?: string;
 }): Promise<GenerateResult> {
   const settings = await getSettings();
   const apiKey = await getApiKey(settings.provider.name);
@@ -544,10 +545,12 @@ async function byokGenerate(params: {
   // Build system message with voice profile context
   let system = params.systemPrompt || "You are a helpful writing assistant. Match the user's voice and style.";
 
-  // Inject voice profile if available
-  const voiceProfile = await getVoiceProfileText(params.format);
-  if (voiceProfile) {
-    system += `\n\n[Voice Profile — write in this style]:\n${voiceProfile}`;
+  // Inject voice profile if available (skip for "fix" — purely mechanical correction)
+  if (params.quickAction !== "fix") {
+    const voiceProfile = await getVoiceProfileText(params.format);
+    if (voiceProfile) {
+      system += `\n\n[Voice Profile — write in this style]:\n${voiceProfile}`;
+    }
   }
 
   if (params.context) {
@@ -564,6 +567,12 @@ async function byokGenerate(params: {
 
   if (params.format !== "general") {
     userContent = `[Format: ${params.format}] [Enforcement: ${params.level}]\n\n${userContent}`;
+  }
+
+  // Quick actions use Haiku on Anthropic for speed, no thinking
+  if (params.quickAction && settings.provider.type === "anthropic") {
+    const provider = { ...settings.provider, model: "claude-haiku-4-5-20251001" };
+    return byokAnthropic(provider, apiKey, system, userContent, true);
   }
 
   if (settings.provider.type === "anthropic") {
@@ -585,8 +594,9 @@ async function byokAnthropic(
   apiKey: string | null,
   system: string,
   userContent: string,
+  skipThinking = false,
 ): Promise<GenerateResult> {
-  const thinking = await getThinkingSettings();
+  const thinking = skipThinking ? { enabled: false, budget: 0 } : await getThinkingSettings();
   const isClaudeToken = provider.name === "claude-token";
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -780,6 +790,7 @@ export async function generate(params: {
   mode?: "generate" | "adapt";
   context?: string;
   attachments?: string[];
+  quickAction?: string;
 }): Promise<GenerateResult> {
   const settings = await getSettings();
 
@@ -793,6 +804,7 @@ export async function generate(params: {
         mode: params.mode || "generate",
         context: params.context,
         attachments: params.attachments,
+        quick_action: params.quickAction,
       }),
     });
     return { text: resp.content, input_tokens: resp.input_tokens, output_tokens: resp.output_tokens };
