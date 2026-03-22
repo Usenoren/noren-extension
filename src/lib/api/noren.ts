@@ -826,9 +826,9 @@ export async function generate(params: {
 }
 
 /**
- * Streaming generate for Pro mode. Yields SSE events as they arrive:
+ * Streaming generate. Yields SSE events as they arrive:
  * delta (text chunks) -> done (full content + tokens) -> cleanup_start -> cleanup_done.
- * Falls back to non-streaming for BYOK mode.
+ * Pro mode streams via SSE, BYOK streams via provider APIs.
  */
 export async function* generateStream(params: {
   prompt: string;
@@ -837,17 +837,17 @@ export async function* generateStream(params: {
   mode?: "generate" | "adapt";
   context?: string;
   attachments?: string[];
+  quickAction?: string;
 }): AsyncGenerator<StreamEvent> {
   const settings = await getSettings();
 
-  // BYOK: no streaming, yield done with full result
+  // BYOK: stream via provider APIs
   if (settings.inference_mode !== "noren_pro" || !settings.noren_pro_logged_in) {
-    const result = await byokGenerate(params);
-    yield { type: "done", content: result.text, input_tokens: result.input_tokens, output_tokens: result.output_tokens, model: "byok" };
+    yield* byokGenerateStream(params);
     return;
   }
 
-  const res = await apiFetch("/generate", {
+  const res = await apiFetch("/generate/", {
     method: "POST",
     body: JSON.stringify({
       prompt: params.prompt,
@@ -1563,4 +1563,219 @@ export async function syncProfileDown(): Promise<void> {
 
 export async function getSyncStatus(): Promise<SyncStatus> {
   return apiJson<SyncStatus>("/sync/status");
+}
+
+// ============================================================
+// BYOK Streaming — provider-native streaming for BYOK users
+// ============================================================
+
+async function* byokGenerateStream(params: {
+  prompt: string;
+  format: string;
+  level: string;
+  context?: string;
+  attachments?: string[];
+  quickAction?: string;
+}): AsyncGenerator<StreamEvent> {
+  const settings = await getSettings();
+  const apiKey = await getApiKey(settings.provider.name);
+
+  // Build system message (same logic as byokGenerate)
+  let system = "You are a helpful writing assistant. Match the user's voice and style.";
+
+  if (params.quickAction !== "fix") {
+    const voiceProfile = await getVoiceProfileText(params.format);
+    if (voiceProfile) {
+      system += `\n\n[Voice Profile — write in this style]:\n${voiceProfile}`;
+    }
+  }
+
+  if (params.context) {
+    system += `\n\nContext from the user's current document:\n${params.context}`;
+  }
+
+  let userContent = params.prompt;
+  if (params.attachments?.length) {
+    const parts = params.attachments.map((att, i) => `[Attached file ${i + 1}]\n${att}`);
+    parts.push(params.prompt);
+    userContent = parts.join("\n\n");
+  }
+
+  if (params.format !== "general") {
+    userContent = `[Format: ${params.format}] [Enforcement: ${params.level}]\n\n${userContent}`;
+  }
+
+  // Quick actions use Haiku — fast enough without streaming
+  if (params.quickAction && settings.provider.type === "anthropic") {
+    const provider = { ...settings.provider, model: "claude-haiku-4-5-20251001" };
+    const result = await byokAnthropic(provider, apiKey, system, userContent, true);
+    yield { type: "done", content: result.text, input_tokens: result.input_tokens, output_tokens: result.output_tokens, model: "byok" };
+    return;
+  }
+
+  if (settings.provider.type === "anthropic") {
+    yield* streamByokAnthropic(settings.provider, apiKey, system, userContent);
+  } else {
+    yield* streamByokOpenAI(settings.provider, apiKey, system, userContent);
+  }
+}
+
+async function* streamByokAnthropic(
+  provider: ProviderConfig,
+  apiKey: string | null,
+  system: string,
+  userContent: string,
+): AsyncGenerator<StreamEvent> {
+  const thinking = await getThinkingSettings();
+  const isClaudeToken = provider.name === "claude-token";
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "anthropic-version": "2023-06-01",
+  };
+  if (apiKey) {
+    if (isClaudeToken) {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+      headers["anthropic-beta"] = "oauth-2025-04-20";
+    } else {
+      headers["x-api-key"] = apiKey;
+      headers["anthropic-dangerous-direct-browser-access"] = "true";
+    }
+  }
+
+  const body: Record<string, unknown> = {
+    model: provider.model,
+    max_tokens: thinking.enabled ? thinking.budget + 4096 : 4096,
+    stream: true,
+    system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
+    messages: [{ role: "user", content: userContent }],
+  };
+  if (thinking.enabled) {
+    body.thinking = { type: "enabled", budget_tokens: thinking.budget };
+  }
+
+  const doFetch = isClaudeToken ? bgFetch : fetch;
+  const res = await doFetch(`${provider.baseUrl}/v1/messages`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    yield { type: "error", message: text || `Anthropic HTTP ${res.status}` };
+    return;
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) {
+    yield { type: "error", message: "No response body" };
+    return;
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let fullContent = "";
+  let inputTokens = 0;
+  let outputTokens = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const json = line.slice(6).trim();
+      if (!json || json === "[DONE]") continue;
+
+      try {
+        const event = JSON.parse(json);
+        if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
+          fullContent += event.delta.text;
+          yield { type: "delta", text: event.delta.text };
+        } else if (event.type === "message_delta" && event.usage) {
+          outputTokens = event.usage.output_tokens || 0;
+        } else if (event.type === "message_start" && event.message?.usage) {
+          inputTokens = event.message.usage.input_tokens || 0;
+        }
+      } catch {
+        // Skip malformed JSON
+      }
+    }
+  }
+
+  yield { type: "done", content: fullContent, input_tokens: inputTokens, output_tokens: outputTokens, model: "byok" };
+}
+
+async function* streamByokOpenAI(
+  provider: ProviderConfig,
+  apiKey: string | null,
+  system: string,
+  userContent: string,
+): AsyncGenerator<StreamEvent> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+
+  const isCustom = provider.name === "custom";
+  const doFetch = isCustom ? bgFetch : fetch;
+  const res = await doFetch(`${provider.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model: provider.model,
+      max_tokens: 4096,
+      stream: true,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: userContent },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    yield { type: "error", message: text || `HTTP ${res.status}` };
+    return;
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) {
+    yield { type: "error", message: "No response body" };
+    return;
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let fullContent = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const json = line.slice(6).trim();
+      if (!json || json === "[DONE]") continue;
+
+      try {
+        const event = JSON.parse(json);
+        const delta = event.choices?.[0]?.delta?.content;
+        if (delta) {
+          fullContent += delta;
+          yield { type: "delta", text: delta };
+        }
+      } catch {
+        // Skip malformed JSON
+      }
+    }
+  }
+
+  yield { type: "done", content: fullContent, input_tokens: 0, output_tokens: 0, model: "byok" };
 }
