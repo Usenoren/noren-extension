@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { generate, generateComparison, listFormats, injectGeneratedText, getProfileOverview, createCheckout, logEdit, type GenerateResult, type ComparisonResult } from "$lib/api/noren";
+  import { generate, generateStream, generateComparison, listFormats, injectGeneratedText, getProfileOverview, createCheckout, logEdit, type GenerateResult, type ComparisonResult, type FixSpan } from "$lib/api/noren";
   import { isFree } from "$lib/stores/subscription.svelte";
   import { friendlyError } from "$lib/utils/errors";
   import LoadingSpinner from "./LoadingSpinner.svelte";
@@ -19,12 +19,20 @@
   let editedText = $state("");
   let comparison = $state<ComparisonResult | null>(null);
   let compareMode = $state(false);
-  let isGenerating = $state(false);
   let error = $state("");
   let attachedFiles = $state<{ name: string; content: string }[]>([]);
   let hasProfile = $state(true);
   let showCompareLock = $state(false);
   let fileInput: HTMLInputElement | undefined = $state();
+
+  // --- Streaming state ---
+  let phase = $state<"idle" | "streaming" | "polishing" | "done">("idle");
+  let streamedText = $state("");
+  let cleanedText = $state("");
+  let fixSpans = $state<FixSpan[]>([]);
+  let cleanupStats = $state<{ found: number; fixed: number } | null>(null);
+  let streamTokens = $state({ input: 0, output: 0 });
+  let isGenerating = $derived(phase === "streaming" || phase === "polishing");
 
   // --- Init ---
   $effect(() => {
@@ -62,18 +70,23 @@
   async function handleGenerate() {
     if (!prompt.trim() || isGenerating) return;
 
-    isGenerating = true;
     error = "";
     output = null;
     oncontextused?.();
     comparison = null;
+    streamedText = "";
+    cleanedText = "";
+    fixSpans = [];
+    cleanupStats = null;
+    streamTokens = { input: 0, output: 0 };
 
-    try {
-      const attachmentContents = attachedFiles.length > 0
-        ? attachedFiles.map((f) => f.content)
-        : undefined;
-
-      if (compareMode) {
+    // Compare mode: non-streaming (comparison needs two results)
+    if (compareMode) {
+      phase = "streaming";
+      try {
+        const attachmentContents = attachedFiles.length > 0
+          ? attachedFiles.map((f) => f.content)
+          : undefined;
         comparison = await generateComparison({
           prompt: prompt.trim(),
           format,
@@ -81,31 +94,82 @@
           attachments: attachmentContents,
         });
         output = comparison.with_voice;
-      } else {
-        output = await generate({
-          prompt: prompt.trim(),
-          format,
-          level,
-          mode: mode !== "generate" ? mode : undefined,
-          context: contextText || undefined,
-          attachments: attachmentContents,
-        });
-      }
-      if (output) {
         editedText = output.text;
+      } catch (e) {
+        error = friendlyError(e);
+      } finally {
+        phase = "done";
+      }
+      return;
+    }
+
+    // Streaming generation
+    phase = "streaming";
+    let cleanupTimeout: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      const attachmentContents = attachedFiles.length > 0
+        ? attachedFiles.map((f) => f.content)
+        : undefined;
+
+      for await (const event of generateStream({
+        prompt: prompt.trim(),
+        format,
+        level,
+        mode: mode !== "generate" ? mode : undefined,
+        context: contextText || undefined,
+        attachments: attachmentContents,
+      })) {
+        if (event.type === "delta") {
+          streamedText += event.text;
+        } else if (event.type === "done") {
+          streamedText = event.content;
+          streamTokens = { input: event.input_tokens, output: event.output_tokens };
+          // Graceful degradation: if no cleanup event within 2s, finalize
+          cleanupTimeout = setTimeout(() => {
+            if (phase === "streaming") {
+              output = { text: streamedText, input_tokens: streamTokens.input, output_tokens: streamTokens.output };
+              editedText = streamedText;
+              phase = "done";
+              weaveComplete = true;
+              setTimeout(() => { weaveComplete = false; }, 1000);
+            }
+          }, 2000);
+        } else if (event.type === "cleanup_start") {
+          if (cleanupTimeout) clearTimeout(cleanupTimeout);
+          phase = "polishing";
+        } else if (event.type === "cleanup_done") {
+          if (cleanupTimeout) clearTimeout(cleanupTimeout);
+          cleanedText = event.content;
+          fixSpans = event.fix_spans || [];
+          cleanupStats = { found: event.issues_found, fixed: event.issues_fixed };
+          output = { text: event.content, input_tokens: streamTokens.input, output_tokens: streamTokens.output };
+          editedText = event.content;
+          phase = "done";
+          weaveComplete = true;
+          setTimeout(() => { weaveComplete = false; }, 1000);
+          // Auto-copy
+          try { await navigator.clipboard.writeText(event.content); copied = true; } catch {}
+        } else if (event.type === "error") {
+          error = event.message;
+          phase = "idle";
+          return;
+        }
+      }
+
+      // If stream ended without cleanup events (short-form), finalize
+      if (phase === "streaming") {
+        if (cleanupTimeout) clearTimeout(cleanupTimeout);
+        output = { text: streamedText, input_tokens: streamTokens.input, output_tokens: streamTokens.output };
+        editedText = streamedText;
+        phase = "done";
         weaveComplete = true;
         setTimeout(() => { weaveComplete = false; }, 1000);
-        try {
-          await navigator.clipboard.writeText(output.text);
-          copied = true;
-        } catch {
-          // Clipboard API may not be available
-        }
+        try { await navigator.clipboard.writeText(streamedText); copied = true; } catch {}
       }
     } catch (e) {
       error = friendlyError(e);
-    } finally {
-      isGenerating = false;
+      phase = "idle";
     }
   }
 
@@ -191,6 +255,35 @@
   function removeAttachment(index: number) {
     attachedFiles = attachedFiles.filter((_, i) => i !== index);
   }
+
+  // Build HTML with highlighted fix spans. Escapes text and wraps spans in glow marks.
+  function buildHighlightedHtml(text: string, spans: FixSpan[]): string {
+    if (!spans.length) return escapeHtml(text);
+    const sorted = [...spans].sort((a, b) => a.start - b.start);
+    let html = "";
+    let cursor = 0;
+    for (const span of sorted) {
+      if (span.start > cursor) html += escapeHtml(text.slice(cursor, span.start));
+      html += `<span class="rhythm-fix glow">${escapeHtml(text.slice(span.start, span.end))}</span>`;
+      cursor = span.end;
+    }
+    if (cursor < text.length) html += escapeHtml(text.slice(cursor));
+    return html;
+  }
+
+  function escapeHtml(s: string): string {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  // Fade highlights after 3s, then switch to editable textarea
+  $effect(() => {
+    if (phase === "done" && fixSpans.length > 0 && cleanedText) {
+      const timer = setTimeout(() => {
+        fixSpans = [];
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  });
 </script>
 
 <!-- Hidden file input -->
@@ -261,7 +354,7 @@
 
   <!-- Output area -->
   <div class="flex-1 min-h-0 overflow-y-auto px-4">
-    {#if !comparison && !output}
+    {#if phase === "idle" && !comparison && !output}
       <div class="h-full flex flex-col items-center justify-center gap-5">
         <img src={loomIdleUrl} alt="" class="w-[130px] opacity-50" />
         <div class="flex flex-col items-center gap-1.5">
@@ -269,6 +362,47 @@
           <p class="text-xs text-muted">Your voice is loaded and ready</p>
         </div>
       </div>
+
+    {:else if phase === "streaming" || phase === "polishing"}
+      <div class="flex flex-col gap-2 h-full">
+        <div class="flex items-center gap-2">
+          <span class="font-heading italic text-[11px] text-muted tracking-wide">{format}</span>
+          <span class="flex items-center gap-1.5 ml-auto">
+            <span class="stream-status-dot {phase === 'polishing' ? 'polishing' : 'generating'}"></span>
+            <span class="font-mono text-[10px] {phase === 'polishing' ? 'text-accent' : 'text-muted'}">
+              {phase === "polishing" ? "Polishing voice" : "Generating"}
+            </span>
+          </span>
+        </div>
+
+        <div class="flex-1 overflow-y-auto output-card output-weave-bg min-h-0 relative">
+          <!-- Progress thread -->
+          <div class="stream-progress">
+            <div class="stream-progress-fill {phase === 'polishing' ? 'complete' : ''}" style="width: {phase === 'polishing' ? '100' : Math.min(98, streamedText.length / 20)}%"></div>
+          </div>
+
+          {#if phase === "polishing"}
+            <div class="polish-overlay visible">
+              <div class="polish-pill">
+                <div class="polish-spinner"></div>
+                <span class="text-[12px] font-medium text-accent">Polishing voice</span>
+              </div>
+            </div>
+          {/if}
+
+          <div
+            class="w-full p-4 font-heading italic text-[15px] whitespace-pre-wrap selectable {phase === 'polishing' ? 'stream-text-dim' : ''}"
+            style="line-height:1.85;letter-spacing:-0.2px;color:var(--color-muted)"
+          >{streamedText}{#if phase === "streaming"}<span class="stream-cursor"></span>{/if}</div>
+        </div>
+
+        <div class="flex items-center pb-2">
+          <span class="font-mono text-[9px] text-muted">
+            {streamTokens.input + streamTokens.output > 0 ? `${streamTokens.input + streamTokens.output} tokens` : ""}
+          </span>
+        </div>
+      </div>
+
     {:else if comparison}
       <div class="flex flex-col gap-2 h-full animate-fabric-unfurl">
         <div class="flex-1 grid grid-cols-2 gap-2 min-h-0">
@@ -317,17 +451,28 @@
         </div>
       </div>
     {:else if output}
-      <div class="flex flex-col gap-2 h-full animate-fabric-unfurl">
+      <div class="flex flex-col gap-2 h-full {cleanedText ? '' : 'animate-fabric-unfurl'}">
         <div class="flex items-center gap-2">
           <span class="font-heading italic text-[11px] text-muted tracking-wide">{format}</span>
+          {#if cleanupStats && cleanupStats.fixed > 0}
+            <span class="font-mono text-[9px] text-accent">{cleanupStats.fixed} rhythm fixes</span>
+          {/if}
         </div>
 
         <div class="flex-1 overflow-y-auto output-card output-weave-bg min-h-0">
-          <textarea
-            bind:value={editedText}
-            class="w-full h-full p-4 font-heading italic text-[15px] text-foreground bg-transparent resize-none border-none focus:outline-none selectable animate-text-weave"
-            style="line-height:1.85;letter-spacing:-0.2px"
-          ></textarea>
+          {#if fixSpans.length > 0 && cleanedText}
+            <!-- Show highlighted text briefly, then switch to textarea -->
+            <div
+              class="w-full p-4 font-heading italic text-[15px] text-foreground whitespace-pre-wrap selectable animate-text-weave"
+              style="line-height:1.85;letter-spacing:-0.2px"
+            >{@html buildHighlightedHtml(cleanedText, fixSpans)}</div>
+          {:else}
+            <textarea
+              bind:value={editedText}
+              class="w-full h-full p-4 font-heading italic text-[15px] text-foreground bg-transparent resize-none border-none focus:outline-none selectable {cleanedText ? '' : 'animate-text-weave'}"
+              style="line-height:1.85;letter-spacing:-0.2px"
+            ></textarea>
+          {/if}
         </div>
 
         <div class="flex items-center pb-2">

@@ -15,6 +15,18 @@ export interface GenerateResult {
   output_tokens: number;
 }
 
+export interface FixSpan {
+  start: number;
+  end: number;
+}
+
+export type StreamEvent =
+  | { type: "delta"; text: string }
+  | { type: "done"; content: string; input_tokens: number; output_tokens: number; model: string; route_reason?: string }
+  | { type: "cleanup_start" }
+  | { type: "cleanup_done"; content: string; issues_found: number; issues_fixed: number; fix_spans: FixSpan[]; checks: unknown }
+  | { type: "error"; message: string };
+
 export interface ProviderConfig {
   name: string;
   type: "anthropic" | "openai_compatible";
@@ -811,6 +823,87 @@ export async function generate(params: {
   }
 
   return byokGenerate(params);
+}
+
+/**
+ * Streaming generate for Pro mode. Yields SSE events as they arrive:
+ * delta (text chunks) -> done (full content + tokens) -> cleanup_start -> cleanup_done.
+ * Falls back to non-streaming for BYOK mode.
+ */
+export async function* generateStream(params: {
+  prompt: string;
+  format: string;
+  level: string;
+  mode?: "generate" | "adapt";
+  context?: string;
+  attachments?: string[];
+}): AsyncGenerator<StreamEvent> {
+  const settings = await getSettings();
+
+  // BYOK: no streaming, yield done with full result
+  if (settings.inference_mode !== "noren_pro" || !settings.noren_pro_logged_in) {
+    const result = await byokGenerate(params);
+    yield { type: "done", content: result.text, input_tokens: result.input_tokens, output_tokens: result.output_tokens, model: "byok" };
+    return;
+  }
+
+  const res = await apiFetch("/generate", {
+    method: "POST",
+    body: JSON.stringify({
+      prompt: params.prompt,
+      format: params.format,
+      level: params.level,
+      mode: params.mode || "generate",
+      context: params.context,
+      attachments: params.attachments,
+      stream: true,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    yield { type: "error", message: text || `HTTP ${res.status}` };
+    return;
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) {
+    yield { type: "error", message: "No response body" };
+    return;
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data: ")) continue;
+      try {
+        const event = JSON.parse(trimmed.slice(6)) as StreamEvent;
+        yield event;
+      } catch {
+        // Skip malformed events
+      }
+    }
+  }
+
+  // Process remaining buffer
+  if (buffer.trim().startsWith("data: ")) {
+    try {
+      const event = JSON.parse(buffer.trim().slice(6)) as StreamEvent;
+      yield event;
+    } catch {
+      // Skip
+    }
+  }
 }
 
 export async function generateComparison(params: {
