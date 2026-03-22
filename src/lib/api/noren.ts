@@ -807,7 +807,7 @@ export async function generate(params: {
   const settings = await getSettings();
 
   if (settings.inference_mode === "noren_pro" && settings.noren_pro_logged_in) {
-    const resp = await apiJson<{ content: string; input_tokens: number; output_tokens: number }>("/generate", {
+    const resp = await apiJson<{ content: string; input_tokens: number; output_tokens: number }>("/generate/", {
       method: "POST",
       body: JSON.stringify({
         prompt: params.prompt,
@@ -913,7 +913,7 @@ export async function generateComparison(params: {
   attachments?: string[];
 }): Promise<ComparisonResult> {
   // Comparison only available via Pro
-  return apiJson<ComparisonResult>("/generate", {
+  return apiJson<ComparisonResult>("/generate/", {
     method: "POST",
     body: JSON.stringify({
       ...params,
@@ -952,7 +952,7 @@ export async function repurpose(params: {
       results: RepurposeFormatResult[];
       total_input_tokens: number;
       total_output_tokens: number;
-    }>("/repurpose", {
+    }>("/repurpose/", {
       method: "POST",
       body: JSON.stringify({
         source_content: params.sourceContent,
@@ -1068,7 +1068,7 @@ export async function chatSend(params: {
   const settings = await getSettings();
 
   if (settings.inference_mode === "noren_pro" && settings.noren_pro_logged_in) {
-    const resp = await apiJson<{ content: string; input_tokens: number; output_tokens: number }>("/generate", {
+    const resp = await apiJson<{ content: string; input_tokens: number; output_tokens: number }>("/generate/", {
       method: "POST",
       body: JSON.stringify({
         messages: params.messages,
@@ -1256,12 +1256,18 @@ export async function saveProfileEdit(params: {
   const settings = await getSettings();
 
   if (settings.inference_mode === "noren_pro" && settings.noren_pro_logged_in) {
-    await apiJson("/profile/voice/edit", {
-      method: "POST",
+    // Fetch current profile, apply edits, re-upload via PUT
+    const current = await apiJson<ProfileContent>("/profile/voice/export", { method: "POST" });
+    const updatedIdentity = params.coreIdentity;
+    const updatedContexts = { ...current.contexts };
+    if (params.contextFormat && params.contextContent !== undefined) {
+      updatedContexts[params.contextFormat] = params.contextContent;
+    }
+    await apiJson("/profile/voice", {
+      method: "PUT",
       body: JSON.stringify({
-        core_identity: params.coreIdentity,
-        context_format: params.contextFormat,
-        context_content: params.contextContent,
+        core_identity: updatedIdentity,
+        contexts: updatedContexts,
       }),
     });
     return;
