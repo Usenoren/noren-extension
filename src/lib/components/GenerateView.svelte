@@ -356,7 +356,7 @@
   <div class="flex-1 min-h-0 overflow-y-auto px-4">
     {#if phase === "idle" && !comparison && !output}
       <div class="h-full flex flex-col items-center justify-center gap-5">
-        <img src={loomIdleUrl} alt="" class="w-[130px] opacity-50" />
+        <img src={loomIdleUrl} alt="" class="w-[130px] opacity-80 brightness-50 dark:opacity-50 dark:brightness-100 dark:invert" />
         <div class="flex flex-col items-center gap-1.5">
           <p class="text-display text-foreground/75">Ready to weave</p>
           <p class="text-xs text-muted">Your voice is loaded and ready</p>

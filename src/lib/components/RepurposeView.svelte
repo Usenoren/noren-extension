@@ -1,6 +1,7 @@
 <script lang="ts">
   import { repurpose, getContextText, type RepurposeFormatResult } from "$lib/api/noren";
   import { friendlyError } from "$lib/utils/errors";
+  import loomIdleUrl from "../../assets/loom-idle.png";
   import LoadingSpinner from "./LoadingSpinner.svelte";
 
   // Flip to true when ready to ship
@@ -112,9 +113,7 @@
   {#if !FEATURE_ENABLED}
     <!-- Coming soon -->
     <div class="flex-1 flex flex-col items-center justify-center px-6">
-      <svg class="w-10 h-10 text-accent/30 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 12c0-1.232-.046-2.453-.138-3.662a4.006 4.006 0 00-3.7-3.7 48.678 48.678 0 00-7.324 0 4.006 4.006 0 00-3.7 3.7c-.017.22-.032.441-.046.662M19.5 12l3-3m-3 3l-3-3m-12 3c0 1.232.046 2.453.138 3.662a4.006 4.006 0 003.7 3.7 48.656 48.656 0 007.324 0 4.006 4.006 0 003.7-3.7c.017-.22.032-.441.046-.662M4.5 12l3 3m-3-3l-3 3" />
-      </svg>
+      <img src={loomIdleUrl} alt="" class="w-[100px] mb-4 opacity-80 brightness-50 dark:opacity-50 dark:brightness-100 dark:invert" />
       <p class="text-sm text-foreground font-medium mb-1">Coming soon</p>
       <p class="text-xs text-muted text-center leading-relaxed">
         Transform a blog post into tweets, emails, and LinkedIn posts. One piece of content, every format, all in your voice.

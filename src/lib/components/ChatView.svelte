@@ -15,7 +15,7 @@
   import { marked } from "marked";
   import DOMPurify from "dompurify";
   import LoadingSpinner from "./LoadingSpinner.svelte";
-  import NorenMark from "./NorenMark.svelte";
+  import loomIdleUrl from "../../assets/loom-idle.png";
 
   marked.setOptions({ breaks: true });
 
@@ -470,9 +470,7 @@
   >
     {#if messages.length === 0}
       <div class="flex flex-col items-center justify-center h-full gap-3">
-        <div class="opacity-15 animate-panel-sway" style="color: var(--color-primary)">
-          <NorenMark width={56} height={67} />
-        </div>
+        <img src={loomIdleUrl} alt="" class="w-[120px] opacity-80 brightness-50 dark:opacity-50 dark:brightness-100 dark:invert" />
         <div class="text-center">
           <p class="font-heading italic text-lg text-foreground/60">Your voice, in conversation</p>
           <p class="text-[11px] text-muted mt-1">Noren responds in your writing style.</p>

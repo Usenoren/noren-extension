@@ -30,6 +30,7 @@
   } from "$lib/stores/subscription.svelte";
   import { friendlyError } from "$lib/utils/errors";
   import LoadingSpinner from "./LoadingSpinner.svelte";
+  import loomIdleUrl from "../../assets/loom-idle.png";
 
   // --- State ---
   let overview = $state<ProfileOverview | null>(null);
@@ -293,11 +294,7 @@
     <div class="flex flex-col h-full">
       <div class="flex-1 flex flex-col items-center justify-center gap-4 px-6">
         <div class="text-center">
-          <div class="w-10 h-10 mx-auto mb-3 rounded-full bg-primary/10 flex items-center justify-center">
-            <svg class="w-5 h-5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-            </svg>
-          </div>
+          <img src={loomIdleUrl} alt="" class="w-[100px] mx-auto mb-3 opacity-80 brightness-50 dark:opacity-50 dark:brightness-100 dark:invert" />
           <h3 class="text-sm font-medium text-foreground">Create Your Voice Profile</h3>
           <p class="text-[11px] text-muted mt-1.5 leading-relaxed max-w-[280px]">
             Describe how you write — your tone, style, patterns. Noren uses this to make every generation sound like you.
