@@ -3,7 +3,6 @@
   import { isFree } from "$lib/stores/subscription.svelte";
   import { friendlyError } from "$lib/utils/errors";
   import LoadingSpinner from "./LoadingSpinner.svelte";
-  import NorenMark from "./NorenMark.svelte";
   import loomIdleUrl from "../../assets/loom-idle.png";
 
   let { initialContext = "", oncontextused }: { initialContext?: string; oncontextused?: () => void } = $props();
