@@ -42,23 +42,35 @@
   }
 </script>
 
-<div class="noren-toolbar" class:noren-below={below} class:noren-reply-mode={replyMode} style="left: {x}px; top: {y}px;">
+<div
+  class="noren-toolbar"
+  class:noren-below={below}
+  class:noren-reply-mode={replyMode}
+  class:noren-loading-mode={loading}
+  style="left: {x}px; top: {y}px;"
+>
   {#if loading}
-    <div class="noren-loading">
+    <div class="noren-loading noren-morph-enter">
       <span class="noren-spinner"></span>
-      <span>Weaving...</span>
+      <span class="noren-loading-text">Weaving...</span>
     </div>
   {:else if replyMode}
-    <input
-      bind:this={inputEl}
-      bind:value={intentText}
-      class="noren-reply-input"
-      placeholder="Your take? Even 1 word helps"
-      onkeydown={handleKeydown}
-    />
-    <button class="noren-action noren-send" onclick={submitReply}>
-      &rarr;
-    </button>
+    <div class="noren-reply-container noren-morph-enter">
+      <span class="noren-reply-label">Reply</span>
+      <div class="noren-reply-divider"></div>
+      <input
+        bind:this={inputEl}
+        bind:value={intentText}
+        class="noren-reply-input"
+        placeholder="agree, but..."
+        onkeydown={handleKeydown}
+      />
+      <button class="noren-reply-send" onclick={submitReply}>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 8h10M9 4l4 4-4 4"/>
+        </svg>
+      </button>
+    </div>
   {:else}
     {#each actions as action}
       <button
