@@ -114,7 +114,11 @@ document.addEventListener("mouseup", (e) => {
     const range = selection!.getRangeAt(0);
     const rect = range.getBoundingClientRect();
 
-    showToolbar(rect.left + rect.width / 2, rect.top, text);
+    // Above by default. Flip below if:
+    // 1. Not enough viewport space above (toolbar ~40px + 8px gap), or
+    // 2. Inside an editable field (native formatting toolbars appear above)
+    const below = rect.top < 50 || isInsideEditable(selection!.anchorNode);
+    showToolbar(rect.left + rect.width / 2, below ? rect.bottom : rect.top, text, below);
   }, 10);
 });
 
@@ -131,6 +135,19 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") dismissToolbar();
 });
 
+function isInsideEditable(node: Node | null): boolean {
+  let current: Node | null = node;
+  while (current) {
+    if (current instanceof HTMLElement) {
+      if (current.isContentEditable || current.tagName === "TEXTAREA" || current.tagName === "INPUT") {
+        return true;
+      }
+    }
+    current = current.parentNode;
+  }
+  return false;
+}
+
 function isInsideNorenUI(node: Node): boolean {
   let current: Node | null = node;
   while (current) {
@@ -142,7 +159,7 @@ function isInsideNorenUI(node: Node): boolean {
   return false;
 }
 
-function showToolbar(x: number, y: number, selectedText: string) {
+function showToolbar(x: number, y: number, selectedText: string, below = false) {
   dismissToolbar();
 
   // Clamp x to viewport
@@ -154,7 +171,8 @@ function showToolbar(x: number, y: number, selectedText: string) {
       x: cx,
       y,
       loading: false,
-      onAction: (action: string) => handleQuickAction(action, selectedText),
+      below,
+      onAction: (action: string, intent?: string) => handleQuickAction(action, selectedText, intent),
     },
     toolbarCss,
     "noren-selection-toolbar",
@@ -170,16 +188,18 @@ function dismissToolbar() {
   processingAction = false;
 }
 
-async function handleQuickAction(action: string, text: string) {
+async function handleQuickAction(action: string, text: string, intent?: string) {
   processingAction = true;
 
   // Show loading state — recreate toolbar with loading=true
   const sel = window.getSelection();
   let tx = window.innerWidth / 2, ty = 100;
+  let belowPos = false;
   if (sel && sel.rangeCount > 0) {
     const r = sel.getRangeAt(0).getBoundingClientRect();
     tx = r.left + r.width / 2;
-    ty = r.top;
+    belowPos = r.top < 50 || isInsideEditable(sel.anchorNode);
+    ty = belowPos ? r.bottom : r.top;
   }
 
   // Destroy old toolbar, create loading one
@@ -190,7 +210,7 @@ async function handleQuickAction(action: string, text: string) {
 
   toolbarMount = createShadowMount(
     SelectionToolbar as any,
-    { x: Math.max(120, Math.min(tx, window.innerWidth - 120)), y: ty, loading: true, onAction: () => {} },
+    { x: Math.max(120, Math.min(tx, window.innerWidth - 120)), y: ty, loading: true, below: belowPos, onAction: () => {} },
     toolbarCss,
     "noren-selection-toolbar",
   );
@@ -200,7 +220,7 @@ async function handleQuickAction(action: string, text: string) {
     // Gather context signals for voice-aware routing
     const detectedFormat = detectFormatFromUrl();
     let surroundingContext: string | null = null;
-    if (action === "expand") {
+    if (action === "reply") {
       const sel = window.getSelection();
       if (sel) surroundingContext = getSurroundingContext(sel);
     }
@@ -211,6 +231,7 @@ async function handleQuickAction(action: string, text: string) {
       text,
       detectedFormat,
       surroundingContext,
+      intent,
     });
 
     dismissToolbar();

@@ -1,4 +1,5 @@
 import { keychainGet, keychainStore, keychainDelete, isKeychainAvailable } from "./keychain";
+import { compressProfile } from "$lib/generate/compress-profile";
 export { isKeychainAvailable } from "./keychain";
 
 const API_BASE = import.meta.env.DEV
@@ -558,8 +559,13 @@ async function byokGenerate(params: {
   let system = params.systemPrompt || "You are a helpful writing assistant. Match the user's voice and style.";
 
   // Inject voice profile if available (skip for "fix" — purely mechanical correction)
+  // Short text (<500 chars) gets compressed profile to save tokens on any provider.
   if (params.quickAction !== "fix") {
-    const voiceProfile = await getVoiceProfileText(params.format);
+    const textLength = params.prompt?.length || 0;
+    const useCompressed = !!params.quickAction && textLength < 500;
+    const voiceProfile = useCompressed
+      ? await getCompressedProfile(params.format)
+      : await getVoiceProfileText(params.format);
     if (voiceProfile) {
       system += `\n\n[Voice Profile — write in this style]:\n${voiceProfile}`;
     }
@@ -581,9 +587,12 @@ async function byokGenerate(params: {
     userContent = `[Format: ${params.format}] [Enforcement: ${params.level}]\n\n${userContent}`;
   }
 
-  // Quick actions use Haiku on Anthropic for speed, no thinking
+  // Quick actions: route by text length on Anthropic (Haiku for short, Sonnet for long)
   if (params.quickAction && settings.provider.type === "anthropic") {
-    const provider = { ...settings.provider, model: "claude-haiku-4-5-20251001" };
+    const textLength = params.prompt?.length || 0;
+    const useFast = params.quickAction === "fix" || textLength < 500;
+    const model = useFast ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-6";
+    const provider = { ...settings.provider, model };
     return byokAnthropic(provider, apiKey, system, userContent, true);
   }
 
@@ -813,7 +822,7 @@ export async function generate(params: {
         prompt: params.prompt,
         format: params.format,
         level: params.level,
-        mode: params.mode || "generate",
+        generation_mode: params.mode || "generate",
         context: params.context,
         attachments: params.attachments,
         quick_action: params.quickAction,
@@ -853,7 +862,7 @@ export async function* generateStream(params: {
       prompt: params.prompt,
       format: params.format,
       level: params.level,
-      mode: params.mode || "generate",
+      generation_mode: params.mode || "generate",
       context: params.context,
       attachments: params.attachments,
       stream: true,
@@ -1228,6 +1237,8 @@ export async function readLocalProfile(): Promise<ProfileContent | null> {
 
 export async function saveLocalProfile(profile: ProfileContent): Promise<void> {
   await chrome.storage.local.set({ voice_profile: profile });
+  // Invalidate compressed profile cache on profile change
+  await chrome.storage.session.remove("compressed_profile_cache");
 }
 
 export async function readProfileContent(): Promise<ProfileContent> {
@@ -1298,6 +1309,34 @@ export async function getVoiceProfileText(format?: string): Promise<string | nul
     text += `\n\n[Context for ${format}]:\n${profile.contexts[format]}`;
   }
   return text;
+}
+
+/** Get a compressed voice profile (~1.2K tokens) for fast model quick actions */
+export async function getCompressedProfile(format?: string): Promise<string | null> {
+  const settings = await getSettings();
+  if (settings.inference_mode === "noren_pro" && settings.noren_pro_logged_in) {
+    return null; // server handles compression for Pro users
+  }
+
+  // Check session cache
+  const cacheKey = `compressed_${format || "general"}`;
+  const cached = await chrome.storage.session.get("compressed_profile_cache");
+  if (cached.compressed_profile_cache?.[cacheKey]) {
+    return cached.compressed_profile_cache[cacheKey];
+  }
+
+  const profile = await readLocalProfile();
+  if (!profile || !profile.core_identity.trim()) return null;
+
+  const contextLayer = format && format !== "general" ? profile.contexts[format] : undefined;
+  const compressed = compressProfile({ coreIdentity: profile.core_identity, contextLayer });
+
+  // Cache in session storage
+  const cache = cached.compressed_profile_cache || {};
+  cache[cacheKey] = compressed;
+  await chrome.storage.session.set({ compressed_profile_cache: cache });
+
+  return compressed;
 }
 
 // ============================================================

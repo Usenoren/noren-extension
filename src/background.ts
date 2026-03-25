@@ -75,16 +75,17 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   }
 });
 
-// Quick action prompt templates (voice-aware: shorten/expand inject profile, fix does not)
-const QUICK_ACTION_PROMPTS: Record<string, (text: string, surroundingContext?: string | null) => string> = {
-  shorten: (text) =>
-    `Make this more concise while preserving the core meaning and my voice. Return only the shortened text.\n\n${text}`,
-  expand: (text, surroundingContext) => {
-    let prompt = `Expand this with more detail and depth, writing in my voice. Return only the expanded text.`;
-    if (surroundingContext) {
-      prompt += `\n\nSurrounding context (for coherence, do not include this in your output):\n${surroundingContext}`;
-    }
-    return `${prompt}\n\n${text}`;
+// Quick action prompt templates
+// rewrite/reply: voice profile injected via system prompt in byokGenerate
+// fix: no voice profile (purely mechanical)
+const QUICK_ACTION_PROMPTS: Record<string, (text: string, ctx?: string | null, intent?: string | null) => string> = {
+  rewrite: (text) =>
+    `Rewrite this in my voice. Change how it's said, not what it says. Preserve the ideas and structure. Return only the rewritten text.\n\n${text}`,
+  reply: (text, ctx, intent) => {
+    let prompt = `Draft a reply to this in my voice. Return only the reply.`;
+    if (intent) prompt += `\n\nMy take: ${intent}`;
+    if (ctx) prompt += `\n\nSurrounding context:\n${ctx}`;
+    return `${prompt}\n\nText to reply to:\n${text}`;
   },
   fix: (text) =>
     `Fix grammar, spelling, and punctuation. Make no stylistic changes. Return only the corrected text.\n\n${text}`,
@@ -121,16 +122,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   // Quick action from selection toolbar (voice-aware)
   if (message.type === "quick-action") {
-    const { action, text, detectedFormat, surroundingContext } = message;
-    const promptFn = QUICK_ACTION_PROMPTS[action] || QUICK_ACTION_PROMPTS.shorten;
+    const { action, text, detectedFormat, surroundingContext, intent } = message;
+    const promptFn = QUICK_ACTION_PROMPTS[action] || QUICK_ACTION_PROMPTS.rewrite;
 
     (async () => {
       try {
         const result = await generate({
-          prompt: promptFn(text, surroundingContext),
+          prompt: promptFn(text, surroundingContext, intent),
           format: action !== "fix" ? (detectedFormat || "general") : "general",
           level: "guided",
           quickAction: action,
+          mode: action === "rewrite" ? "adapt" : "generate",
         });
         sendResponse({ result: result.text });
       } catch (e) {
