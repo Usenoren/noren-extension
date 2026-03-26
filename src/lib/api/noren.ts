@@ -1340,6 +1340,17 @@ export async function getCompressedProfile(format?: string): Promise<string | nu
 }
 
 // ============================================================
+// Support
+// ============================================================
+
+export async function sendSupportMessage(message: string): Promise<void> {
+  await apiJson<{ ok: boolean }>("/support/message", {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  });
+}
+
+// ============================================================
 // Auth — Noren Pro
 // ============================================================
 
