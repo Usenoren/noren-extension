@@ -16,7 +16,7 @@
   let loading = $state(true);
   let showOnboarding = $state(false);
   let contextText = $state("");
-  let profileName = $state("");
+  let hasProfile = $state(false);
 
   const navItems: { id: View; label: string; icon: string }[] = [
     { id: "generate", label: "Weave", icon: "pen" },
@@ -47,10 +47,9 @@
         const ctx = await getContextText();
         if (ctx) contextText = ctx;
 
-        // Fetch profile name for voice badge
         try {
           const overview = await getProfileOverview();
-          if (overview.exists && overview.name) profileName = overview.name;
+          hasProfile = overview.exists;
         } catch {}
 
         if (settings.noren_pro_logged_in) {
@@ -128,10 +127,9 @@
     {/each}
 
     <span class="ml-auto flex items-center gap-1.5">
-      {#if profileName}
+      {#if hasProfile}
         <div class="voice-badge">
           <div class="voice-badge-dot"></div>
-          <span class="font-mono text-[8px] font-medium uppercase tracking-wide text-signal">{profileName}</span>
         </div>
       {/if}
       <AnnouncementBell />
