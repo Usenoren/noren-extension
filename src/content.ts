@@ -89,6 +89,7 @@ function getSurroundingContext(selection: Selection, maxChars = 200): string | n
 let toolbarMount: ShadowMountResult | null = null;
 let processingAction = false;
 
+// Use capture phase so page scripts can't swallow the event with stopPropagation
 document.addEventListener("mouseup", (e) => {
   // Ignore clicks on our own toolbar
   if (toolbarMount && e.composedPath().includes(toolbarMount.host)) return;
@@ -120,7 +121,7 @@ document.addEventListener("mouseup", (e) => {
     const below = rect.top < 50 || isInsideEditable(selection!.anchorNode);
     showToolbar(rect.left + rect.width / 2, below ? rect.bottom : rect.top, text, below);
   }, 10);
-});
+}, true);
 
 document.addEventListener("mousedown", (e) => {
   if (!toolbarMount) return;
@@ -129,11 +130,11 @@ document.addEventListener("mousedown", (e) => {
   if (!path.includes(toolbarMount.host)) {
     dismissToolbar();
   }
-});
+}, true);
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") dismissToolbar();
-});
+}, true);
 
 function isInsideEditable(node: Node | null): boolean {
   let current: Node | null = node;
