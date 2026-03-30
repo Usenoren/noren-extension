@@ -7,6 +7,17 @@
 
   let { initialContext = "", oncontextused, onnavigate }: { initialContext?: string; oncontextused?: () => void; onnavigate?: (tab: string) => void } = $props();
 
+  // --- History types ---
+  interface HistoryEntry {
+    id: string;
+    timestamp: string;
+    format: string;
+    prompt: string;
+    mode: string;
+    text: string;
+    token_count: number;
+  }
+
   // --- State ---
   let prompt = $state("");
   let format = $state("general");
@@ -18,11 +29,14 @@
   let editedText = $state("");
   let comparison = $state<ComparisonResult | null>(null);
   let compareMode = $state(false);
+  let savedPrompt = $state("");
   let error = $state("");
   let attachedFiles = $state<{ name: string; content: string }[]>([]);
   let hasProfile = $state(true);
   let showCompareLock = $state(false);
+  let showOverflow = $state(false);
   let fileInput: HTMLInputElement | undefined = $state();
+  let history = $state<HistoryEntry[]>([]);
 
   // --- Streaming state ---
   let phase = $state<"idle" | "streaming" | "polishing" | "done">("idle");
@@ -33,8 +47,59 @@
   let streamTokens = $state({ input: 0, output: 0 });
   let isGenerating = $derived(phase === "streaming" || phase === "polishing");
 
+  // --- History persistence ---
+  const HISTORY_KEY = "noren:weave_history";
+  const MAX_HISTORY = 20;
+
+  async function loadHistory() {
+    try {
+      const data = await chrome.storage.local.get(HISTORY_KEY);
+      history = data[HISTORY_KEY] || [];
+    } catch { history = []; }
+  }
+
+  async function saveToHistory(entry: HistoryEntry) {
+    history = [entry, ...history.slice(0, MAX_HISTORY - 1)];
+    try {
+      await chrome.storage.local.set({ [HISTORY_KEY]: history });
+    } catch {}
+  }
+
+  async function clearHistory() {
+    history = [];
+    try {
+      await chrome.storage.local.remove(HISTORY_KEY);
+    } catch {}
+  }
+
+  function loadFromHistory(entry: HistoryEntry) {
+    savedPrompt = entry.prompt;
+    format = entry.format;
+    mode = entry.mode as "generate" | "adapt";
+    output = { text: entry.text, input_tokens: entry.token_count, output_tokens: 0 };
+    editedText = entry.text;
+    phase = "done";
+    comparison = null;
+    compareMode = false;
+  }
+
+  function formatTimestamp(ts: string): string {
+    const d = new Date(ts);
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return "just now";
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    const diffDay = Math.floor(diffHr / 24);
+    if (diffDay < 7) return `${diffDay}d ago`;
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+
   // --- Init ---
   $effect(() => {
+    loadHistory();
     getProfileOverview().then((overview) => {
       hasProfile = overview.exists;
       let f = overview.formats;
@@ -71,6 +136,8 @@
 
     error = "";
     output = null;
+    savedPrompt = prompt.trim();
+    prompt = "";
     oncontextused?.();
     comparison = null;
     streamedText = "";
@@ -87,13 +154,14 @@
           ? attachedFiles.map((f) => f.content)
           : undefined;
         comparison = await generateComparison({
-          prompt: prompt.trim(),
+          prompt: savedPrompt,
           format,
           context: contextText || undefined,
           attachments: attachmentContents,
         });
         output = comparison.with_voice;
         editedText = output.text;
+        saveToHistory({ id: crypto.randomUUID(), timestamp: new Date().toISOString(), format, prompt: savedPrompt, mode, text: output.text, token_count: output.input_tokens + output.output_tokens });
       } catch (e) {
         error = friendlyError(e);
       } finally {
@@ -112,7 +180,7 @@
         : undefined;
 
       for await (const event of generateStream({
-        prompt: prompt.trim(),
+        prompt: savedPrompt,
         format,
         level,
         mode: mode !== "generate" ? mode : undefined,
@@ -132,6 +200,7 @@
               phase = "done";
               weaveComplete = true;
               setTimeout(() => { weaveComplete = false; }, 1000);
+              saveToHistory({ id: crypto.randomUUID(), timestamp: new Date().toISOString(), format, prompt: savedPrompt, mode, text: streamedText, token_count: streamTokens.input + streamTokens.output });
             }
           }, 2000);
         } else if (event.type === "cleanup_start") {
@@ -147,6 +216,7 @@
           phase = "done";
           weaveComplete = true;
           setTimeout(() => { weaveComplete = false; }, 1000);
+          saveToHistory({ id: crypto.randomUUID(), timestamp: new Date().toISOString(), format, prompt: savedPrompt, mode, text: event.content, token_count: streamTokens.input + streamTokens.output });
           // Auto-copy
           try { await navigator.clipboard.writeText(event.content); copied = true; } catch {}
         } else if (event.type === "error") {
@@ -164,6 +234,7 @@
         phase = "done";
         weaveComplete = true;
         setTimeout(() => { weaveComplete = false; }, 1000);
+        saveToHistory({ id: crypto.randomUUID(), timestamp: new Date().toISOString(), format, prompt: savedPrompt, mode, text: streamedText, token_count: streamTokens.input + streamTokens.output });
         try { await navigator.clipboard.writeText(streamedText); copied = true; } catch {}
       }
     } catch (e) {
@@ -185,7 +256,7 @@
 
     try {
       comparison = await generateComparison({
-        prompt: prompt.trim(),
+        prompt: savedPrompt || prompt.trim(),
         format,
         context: contextText || undefined,
         attachments: attachedFiles.length > 0 ? attachedFiles.map((f) => f.content) : undefined,
@@ -255,6 +326,36 @@
     attachedFiles = attachedFiles.filter((_, i) => i !== index);
   }
 
+  // Close overflow menu on outside click
+  function handleWindowClick(e: MouseEvent) {
+    if (showOverflow) {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.relative')) showOverflow = false;
+    }
+  }
+
+  $effect(() => {
+    if (showOverflow) {
+      window.addEventListener('click', handleWindowClick, true);
+      return () => window.removeEventListener('click', handleWindowClick, true);
+    }
+  });
+
+  function handleNewWeave() {
+    output = null;
+    comparison = null;
+    editedText = "";
+    savedPrompt = "";
+    streamedText = "";
+    cleanedText = "";
+    fixSpans = [];
+    cleanupStats = null;
+    phase = "idle";
+    compareMode = false;
+    copied = false;
+    error = "";
+  }
+
   // Build HTML with highlighted fix spans. Escapes text and wraps spans in glow marks.
   function buildHighlightedHtml(text: string, spans: FixSpan[]): string {
     if (!spans.length) return escapeHtml(text);
@@ -297,7 +398,22 @@
 <div class="flex flex-col h-full animate-fade-in-up">
   <!-- Toolbar -->
   <div class="flex items-center gap-2 px-4 pt-4 pb-3 shrink-0">
-    <span class="font-heading italic text-[18px] mr-auto">Weave</span>
+    <span class="font-heading italic text-[18px]">Weave</span>
+
+    {#if output || comparison}
+      <button
+        onclick={handleNewWeave}
+        class="inline-flex items-center gap-1 px-2 py-1 text-[10px] text-muted hover:text-foreground bg-surface border border-border rounded-md transition-colors cursor-pointer"
+        title="Start a new weave"
+      >
+        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+        New
+      </button>
+    {/if}
+
+    <span class="mr-auto"></span>
 
     <select
       bind:value={format}
@@ -307,16 +423,6 @@
         <option value={fmt}>{fmt}</option>
       {/each}
     </select>
-
-    <button
-      onclick={handleAttachFile}
-      class="inline-flex items-center gap-1.5 bg-surface border border-border rounded-lg px-3 py-1.5 text-xs text-muted hover:text-foreground hover:border-secondary transition-colors cursor-pointer"
-      title="Attach a file"
-      disabled={attachedFiles.length >= 3}
-    >
-      <svg class="w-[13px] h-[13px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
-      Attach{#if attachedFiles.length > 0} ({attachedFiles.length}/3){/if}
-    </button>
 
     <button
       onclick={() => { mode = mode === "generate" ? "adapt" : "generate"; }}
@@ -330,12 +436,28 @@
       Adapt
     </button>
 
-    {#if hasProfile}
-      <button class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-accent-wash border border-accent text-accent rounded-lg cursor-default">
-        <div class="voice-badge-dot"></div>
-        Voice
-      </button>
-    {/if}
+    <!-- Overflow menu -->
+    <div class="relative">
+      <button
+        onclick={() => { showOverflow = !showOverflow; }}
+        class="flex items-center justify-center w-7 h-7 text-muted hover:text-foreground bg-surface border border-border rounded-md transition-colors cursor-pointer text-sm"
+        title="More options"
+      >···</button>
+      {#if showOverflow}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <div class="absolute right-0 top-full mt-1 z-10 bg-surface border border-border rounded-lg shadow-lg py-1 min-w-[140px]" style="box-shadow: 0 4px 16px rgba(30,49,72,0.12)">
+          <button
+            onclick={() => { handleAttachFile(); showOverflow = false; }}
+            class="w-full flex items-center gap-2 px-3 py-2 text-xs text-foreground hover:bg-tint transition-colors cursor-pointer text-left"
+            disabled={attachedFiles.length >= 3}
+          >
+            <svg class="w-3.5 h-3.5 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+            Attach file{#if attachedFiles.length > 0} ({attachedFiles.length}/3){/if}
+          </button>
+        </div>
+      {/if}
+    </div>
   </div>
 
   <div class="divider shrink-0"></div>
@@ -384,16 +506,49 @@
   <!-- Output area -->
   <div class="flex-1 min-h-0 overflow-y-auto px-4">
     {#if phase === "idle" && !comparison && !output}
-      <div class="h-full flex flex-col items-center justify-center gap-5">
-        <img src={loomIdleUrl} alt="" class="w-[130px] loom-idle-img" />
+      <div class="h-full flex flex-col items-center {history.length > 0 ? 'justify-start pt-8' : 'justify-center'} gap-5">
+        <img src={loomIdleUrl} alt="" class="w-[100px] loom-idle-img" />
         <div class="flex flex-col items-center gap-1.5">
           <p class="text-display text-foreground/75">Ready to weave</p>
-          <p class="text-xs text-muted">Your voice is loaded and ready</p>
+          <p class="text-xs text-muted">{hasProfile ? (history.length > 0 ? "Type below, or pick up where you left off" : "Your voice is loaded and ready") : "Your voice is loaded and ready"}</p>
         </div>
+
+        {#if history.length > 0}
+          <div class="w-full mt-2">
+            <div class="flex items-center justify-between mb-2 px-1">
+              <span class="font-mono text-[9px] font-semibold uppercase tracking-wider text-muted opacity-60">Recent</span>
+              <button
+                onclick={clearHistory}
+                class="text-[10px] text-muted hover:text-accent transition-colors cursor-pointer opacity-0 hover:opacity-100"
+                style="transition: opacity 0.2s"
+              >Clear</button>
+            </div>
+            <div class="flex flex-col gap-1">
+              {#each history as entry}
+                <button
+                  onclick={() => loadFromHistory(entry)}
+                  class="w-full text-left px-3 py-2.5 bg-surface border border-border rounded-lg hover:border-secondary transition-all cursor-pointer group"
+                >
+                  <p class="text-[12px] text-foreground leading-snug truncate">{entry.prompt}</p>
+                  <div class="flex items-center gap-1.5 mt-1">
+                    <span class="font-mono text-[9px] text-muted">{entry.format}</span>
+                    <span class="text-[9px] text-muted opacity-40">&middot;</span>
+                    <span class="text-[9px] text-muted">{formatTimestamp(entry.timestamp)}</span>
+                    <span class="text-[9px] text-muted opacity-40">&middot;</span>
+                    <span class="text-[9px] text-muted">{entry.token_count.toLocaleString()} tokens</span>
+                  </div>
+                </button>
+              {/each}
+            </div>
+          </div>
+        {/if}
       </div>
 
     {:else if phase === "streaming" || phase === "polishing"}
       <div class="flex flex-col gap-2 h-full">
+        {#if savedPrompt}
+          <div class="text-[11px] text-muted leading-relaxed px-1 py-1.5 truncate" title={savedPrompt}>{savedPrompt}</div>
+        {/if}
         <div class="flex items-center gap-2">
           <span class="font-heading italic text-[11px] text-muted tracking-wide">{format}</span>
           <span class="flex items-center gap-1.5 ml-auto">
@@ -481,6 +636,9 @@
       </div>
     {:else if output}
       <div class="flex flex-col gap-2 h-full {cleanedText ? '' : 'animate-fabric-unfurl'}">
+        {#if savedPrompt}
+          <div class="text-[11px] text-muted leading-relaxed px-1 py-1.5 truncate" title={savedPrompt}>{savedPrompt}</div>
+        {/if}
         <div class="flex items-center gap-2">
           <span class="font-heading italic text-[11px] text-muted tracking-wide">{format}</span>
           {#if cleanupStats && cleanupStats.fixed > 0}
