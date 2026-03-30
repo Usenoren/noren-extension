@@ -67,14 +67,14 @@
       <p class="text-[11px] text-muted">Quick reference, common questions, and how to reach us.</p>
     </div>
 
-    <!-- Getting Started -->
-    <section class="mb-7">
-      <div class="flex items-center gap-2 mb-3">
-        <span class="font-heading italic text-[13px] text-accent">Getting started</span>
-        <div class="flex-1 h-px bg-gradient-to-r from-border to-transparent"></div>
-      </div>
-      <div class="flex flex-col gap-1.5">
-        {#if !hasProfile}
+    <!-- First step (only without profile) -->
+    {#if !hasProfile}
+      <section class="mb-7">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="font-heading italic text-[13px] text-accent">First step</span>
+          <div class="flex-1 h-px bg-gradient-to-r from-border to-transparent"></div>
+        </div>
+        <div class="flex flex-col gap-1.5">
           <div class="flex items-start gap-2.5 p-3 bg-surface border border-border rounded-lg shadow-card">
             <span class="font-heading italic text-base text-accent opacity-35 leading-none min-w-[18px] pt-px">01</span>
             <p class="text-xs text-foreground leading-relaxed"><strong class="font-medium">Extract your voice.</strong> Paste 10+ writing samples across formats.</p>
@@ -83,16 +83,33 @@
             <span class="font-heading italic text-base text-accent opacity-35 leading-none min-w-[18px] pt-px">02</span>
             <p class="text-xs text-foreground leading-relaxed"><strong class="font-medium">No samples?</strong> Use the guided interview to capture your voice in 10 minutes.</p>
           </div>
-        {:else}
-          <div class="flex items-start gap-2.5 p-3 bg-surface border border-border rounded-lg shadow-card">
-            <span class="font-heading italic text-base text-accent opacity-35 leading-none min-w-[18px] pt-px">01</span>
-            <p class="text-xs text-foreground leading-relaxed"><strong class="font-medium">Highlight text anywhere.</strong> Use Rewrite, Reply, or Fix to edit in your voice inline.</p>
-          </div>
-          <div class="flex items-start gap-2.5 p-3 bg-surface border border-border rounded-lg shadow-card">
-            <span class="font-heading italic text-base text-accent opacity-35 leading-none min-w-[18px] pt-px">02</span>
-            <p class="text-xs text-foreground leading-relaxed"><strong class="font-medium">Generate in your voice.</strong> Open the side panel, pick a format, and write a prompt.</p>
-          </div>
-        {/if}
+        </div>
+      </section>
+    {/if}
+
+    <!-- What you can do (always visible) -->
+    <section class="mb-7">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="font-heading italic text-[13px] text-accent">What you can do</span>
+        <div class="flex-1 h-px bg-gradient-to-r from-border to-transparent"></div>
+      </div>
+      <div class="flex flex-col gap-1.5">
+        <div class="flex items-start gap-2.5 p-3 bg-surface border border-border rounded-lg shadow-card">
+          <span class="font-heading italic text-base text-accent opacity-35 leading-none min-w-[18px] pt-px">01</span>
+          <p class="text-xs text-foreground leading-relaxed"><strong class="font-medium">Highlight + action:</strong> Select text on any page and a toolbar appears with Rewrite, Reply, and Fix. Add a brief thought like "I disagree" and Noren writes the full response.</p>
+        </div>
+        <div class="flex items-start gap-2.5 p-3 bg-surface border border-border rounded-lg shadow-card">
+          <span class="font-heading italic text-base text-accent opacity-35 leading-none min-w-[18px] pt-px">02</span>
+          <p class="text-xs text-foreground leading-relaxed"><strong class="font-medium">Weave:</strong> Open the side panel, pick a format, and type or paste your notes. Noren turns them into polished output in your voice. Click edit to highlight any section and refine it with a note.</p>
+        </div>
+        <div class="flex items-start gap-2.5 p-3 bg-surface border border-border rounded-lg shadow-card">
+          <span class="font-heading italic text-base text-accent opacity-35 leading-none min-w-[18px] pt-px">03</span>
+          <p class="text-xs text-foreground leading-relaxed"><strong class="font-medium">Chat:</strong> Your thinking space. Brainstorm, research, or work through ideas before you write.</p>
+        </div>
+        <div class="flex items-start gap-2.5 p-3 bg-surface border border-border rounded-lg shadow-card">
+          <span class="font-heading italic text-base text-accent opacity-35 leading-none min-w-[18px] pt-px">04</span>
+          <p class="text-xs text-foreground leading-relaxed"><strong class="font-medium">Desktop app:</strong> The macOS menu bar app gives you ⌘K to generate from any text field (Telegram, Mail, Slack) without switching apps.</p>
+        </div>
       </div>
     </section>
 

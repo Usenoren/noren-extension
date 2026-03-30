@@ -713,16 +713,10 @@ async function byokChat(
   const settings = await getSettings();
   const apiKey = await getApiKey(settings.provider.name);
 
-  let system = "You are a helpful writing assistant. Match the user's voice and style.";
-
-  // Inject voice profile if available
-  const voiceProfile = await getVoiceProfileText(format);
-  if (voiceProfile) {
-    system += `\n\n[Voice Profile — write in this style]:\n${voiceProfile}`;
-  }
+  let system = "You are a helpful assistant. Be conversational, clear, and concise.";
 
   if (format !== "general") {
-    system += `\n[Format: ${format}]`;
+    system += `\n[Format context: ${format}]`;
   }
 
   // Inject attachments into last user message

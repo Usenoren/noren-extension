@@ -7,15 +7,39 @@
     googleOAuthPoll,
     verifyEmail,
     resendOtp,
+    getProfileOverview,
   } from "$lib/api/noren";
+  import { PALETTES, setAndPersistTheme, applyTheme, type PaletteId } from "$lib/stores/theme.svelte";
   import { friendlyError } from "$lib/utils/errors";
   import LoadingSpinner from "./LoadingSpinner.svelte";
   import NorenMark from "./NorenMark.svelte";
 
-  let { oncomplete }: { oncomplete: (tab: "generate" | "settings") => void } = $props();
+  let { oncomplete }: { oncomplete: (tab: "generate" | "settings" | "profile") => void } = $props();
 
-  type Screen = "welcome" | "signin" | "otp";
+  type Screen = "welcome" | "palette" | "signin" | "otp" | "next-steps";
   let screen: Screen = $state("welcome");
+  let pendingPath = $state<"signin" | "byok">("signin");
+  let selectedPalette = $state<PaletteId>("kon");
+
+  // Next-steps state
+  let authCompleteMode = $state<"pro" | "byok">("pro");
+  let hasExistingProfile = $state(false);
+  let nextStepsLoading = $state(false);
+
+  async function goToNextSteps(mode: "pro" | "byok") {
+    authCompleteMode = mode;
+    if (mode === "pro") {
+      nextStepsLoading = true;
+      try {
+        const overview = await getProfileOverview();
+        hasExistingProfile = overview.exists;
+      } catch {
+        hasExistingProfile = false;
+      }
+      nextStepsLoading = false;
+    }
+    screen = "next-steps";
+  }
 
   let authMode = $state<"login" | "signup">("login");
   let email = $state("");
@@ -32,7 +56,7 @@
 
   async function handleByok() {
     await chrome.storage.local.set({ onboarding_complete: true });
-    oncomplete("settings");
+    goToNextSteps("byok");
   }
 
   async function handleProAuth() {
@@ -50,7 +74,7 @@
         await norenProLogin(email.trim(), password.trim());
         await setInferenceMode("noren_pro");
         await chrome.storage.local.set({ onboarding_complete: true });
-        oncomplete("generate");
+        goToNextSteps("pro");
       }
     } catch (e) {
       error = friendlyError(e);
@@ -78,7 +102,7 @@
       email = "";
       await setInferenceMode("noren_pro");
       await chrome.storage.local.set({ onboarding_complete: true });
-      oncomplete("generate");
+      goToNextSteps("pro");
     } catch (e) {
       error = friendlyError(e);
     } finally {
@@ -114,7 +138,7 @@
           if (result.complete) {
             await setInferenceMode("noren_pro");
             await chrome.storage.local.set({ onboarding_complete: true });
-            oncomplete("generate");
+            goToNextSteps("pro");
             return;
           }
         } catch (e) {
@@ -167,7 +191,7 @@
 
       <!-- Primary CTA -->
       <button
-        onclick={() => { screen = "signin"; }}
+        onclick={() => { pendingPath = "signin"; screen = "palette"; }}
         class="w-full mt-10 py-3 text-sm font-medium text-white transition-all cursor-pointer rounded-md bg-accent hover:bg-accent-hover"
       >
         Get Started with Noren Pro
@@ -175,10 +199,68 @@
 
       <!-- BYOK link -->
       <button
-        onclick={handleByok}
+        onclick={() => { pendingPath = "byok"; screen = "palette"; }}
         class="text-[11px] text-muted hover:text-secondary transition-colors cursor-pointer mt-5"
       >
         Use my own provider instead
+      </button>
+    </div>
+
+  {:else if screen === "palette"}
+    <!-- Screen 1b: Pick your workspace -->
+    <div class="relative flex flex-col items-center max-w-xs w-full animate-fade-in-up mt-4">
+      <h1 class="text-display font-heading text-foreground tracking-tight text-center leading-tight">
+        Pick your workspace
+      </h1>
+      <p class="text-[12px] text-muted text-center mt-2 leading-relaxed">
+        You can change this anytime in Settings
+      </p>
+
+      <div class="grid grid-cols-4 gap-2 mt-8 w-full">
+        {#each PALETTES as palette}
+          <button
+            onclick={() => { selectedPalette = palette.id; applyTheme(palette.id); }}
+            class="flex flex-col items-center gap-1 cursor-pointer"
+          >
+            <div
+              class="w-full h-[48px] rounded-md overflow-hidden relative transition-all duration-200"
+              style="border: 2px solid {selectedPalette === palette.id ? '#7A3340' : 'transparent'};
+                     box-shadow: {selectedPalette === palette.id ? '0 0 10px rgba(122,51,64,0.3)' : 'none'}"
+            >
+              <div style="background:{palette.surface};height:8px;width:100%"></div>
+              <div class="flex items-center justify-center" style="background:{palette.bg};height:40px;padding:6px">
+                <div
+                  class="rounded-sm relative"
+                  style="background:{palette.surface};width:80%;height:22px;border-left:2px solid {palette.accent}"
+                >
+                  <div
+                    class="absolute rounded-full"
+                    style="background:{palette.accent};width:4px;height:4px;top:4px;right:4px"
+                  ></div>
+                </div>
+              </div>
+            </div>
+            <span class="font-mono text-[9px] font-medium text-foreground leading-tight">{palette.name}</span>
+            <span class="font-heading italic text-[8px] text-muted -mt-0.5">{palette.vibe}</span>
+            {#if palette.id === "kon"}
+              <span class="font-mono text-[7px] font-medium px-1 py-px rounded-sm bg-accent text-white opacity-80 -mt-0.5">default</span>
+            {/if}
+          </button>
+        {/each}
+      </div>
+
+      <button
+        onclick={async () => {
+          await setAndPersistTheme(selectedPalette);
+          if (pendingPath === "byok") {
+            handleByok();
+          } else {
+            screen = "signin";
+          }
+        }}
+        class="w-full mt-8 py-3 text-sm font-medium text-white transition-all cursor-pointer rounded-md bg-accent hover:bg-accent-hover"
+      >
+        Continue
       </button>
     </div>
 
@@ -339,6 +421,140 @@
           Back
         </button>
       </div>
+    </div>
+
+  {:else if screen === "next-steps"}
+    <!-- Screen: Next Steps (post-auth) -->
+    <div class="relative flex flex-col items-center max-w-xs w-full animate-fade-in-up mt-4">
+
+      {#if nextStepsLoading}
+        <div class="flex items-center gap-2">
+          <LoadingSpinner />
+          <span class="text-xs text-muted">Checking your profile...</span>
+        </div>
+
+      {:else if authCompleteMode === "pro" && hasExistingProfile}
+        <!-- Pro with profile synced -->
+        <div class="w-10 h-10 rounded-full flex items-center justify-center mb-4 relative" style="background:rgba(45,134,89,0.08)">
+          <svg class="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="var(--color-signal, #2D8659)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 13l4 4L19 7"/>
+          </svg>
+          <div class="absolute -inset-[3px] rounded-full border" style="border-color:rgba(45,134,89,0.1)"></div>
+        </div>
+
+        <h2 class="text-heading font-heading text-foreground text-center">Your voice profile is synced</h2>
+        <p class="text-[12px] text-muted text-center mt-2 leading-relaxed">You're ready to generate in your voice.</p>
+
+        <button
+          onclick={() => oncomplete("generate")}
+          class="w-full mt-8 py-3 text-sm font-medium text-white transition-all cursor-pointer rounded-md bg-accent hover:bg-accent-hover"
+          style="box-shadow:0 2px 8px rgba(122,51,64,0.15)"
+        >
+          Start writing
+        </button>
+
+      {:else if authCompleteMode === "pro" && !hasExistingProfile}
+        <!-- Pro without profile -->
+        <div class="w-10 h-10 rounded-full flex items-center justify-center mb-4 relative" style="background:rgba(122,51,64,0.08)">
+          <svg class="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="var(--color-accent, #7A3340)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"/>
+            <path d="M14 13.12c0 2.38 0 6.38-1 8.88"/>
+            <path d="M17.29 21.02c.12-.6.43-2.3.5-3.02"/>
+            <path d="M2 12a10 10 0 0 1 18-6"/>
+            <path d="M2 16h.01"/>
+            <path d="M21.8 16c.2-2 .131-5.354 0-6"/>
+            <path d="M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2"/>
+            <path d="M8.65 22c.21-.66.45-1.32.57-2"/>
+            <path d="M9 6.8a6 6 0 0 1 9 5.2v2"/>
+          </svg>
+          <div class="absolute -inset-[3px] rounded-full border" style="border-color:rgba(122,51,64,0.08)"></div>
+        </div>
+
+        <h2 class="text-heading font-heading text-foreground text-center">Almost there</h2>
+        <p class="text-[12px] text-muted text-center mt-2 leading-relaxed" style="max-width:260px">
+          Extract your voice to get started. Your profile will sync to the extension automatically.
+        </p>
+
+        <div class="w-full flex flex-col gap-2 mt-6">
+          <!-- Option: Extract on website -->
+          <button
+            onclick={() => window.open("https://usenoren.ai", "_blank")}
+            class="w-full flex items-center gap-3 text-left cursor-pointer rounded-[10px] transition-all duration-200 hover:-translate-y-px"
+            style="padding:12px 14px; background:var(--color-surface, #fff); border:1px solid rgba(30,49,72,0.08)"
+          >
+            <div class="shrink-0 flex items-center justify-center rounded-lg" style="width:32px;height:32px;background:rgba(122,51,64,0.08)">
+              <svg class="w-[15px] h-[15px]" fill="none" viewBox="0 0 24 24" stroke="var(--color-accent, #7A3340)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10A15.3 15.3 0 0112 2z"/>
+              </svg>
+            </div>
+            <div>
+              <div class="text-[12px] font-semibold" style="color:var(--color-accent, #7A3340)">Extract on usenoren.ai</div>
+              <div class="text-[10px] text-muted mt-px">Works in your browser, nothing to install</div>
+            </div>
+          </button>
+
+          <!-- Option: Desktop app -->
+          <button
+            onclick={() => window.open("https://usenoren.ai", "_blank")}
+            class="w-full flex items-center gap-3 text-left cursor-pointer rounded-[10px] transition-all duration-200 hover:-translate-y-px"
+            style="padding:12px 14px; background:var(--color-surface, #fff); border:1px solid rgba(30,49,72,0.08)"
+          >
+            <div class="shrink-0 flex items-center justify-center rounded-lg" style="width:32px;height:32px;background:rgba(30,49,72,0.03);border:1px solid rgba(30,49,72,0.08)">
+              <svg class="w-[15px] h-[15px]" fill="none" viewBox="0 0 24 24" stroke="var(--color-secondary, #3B6B8A)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="3" width="20" height="14" rx="2"/>
+                <path d="M8 21h8M12 17v4"/>
+              </svg>
+            </div>
+            <div>
+              <div class="text-[12px] font-semibold text-foreground">Download the desktop app</div>
+              <div class="text-[10px] text-muted mt-px">macOS menu bar app with ⌘K shortcuts</div>
+            </div>
+          </button>
+        </div>
+
+        <button
+          onclick={() => oncomplete("profile")}
+          class="text-[11px] text-muted hover:text-secondary transition-colors cursor-pointer mt-4"
+        >
+          Or write a quick description instead
+        </button>
+
+      {:else}
+        <!-- BYOK user -->
+        <div class="w-10 h-10 rounded-full flex items-center justify-center mb-4" style="background:rgba(30,49,72,0.03);border:1px solid rgba(30,49,72,0.08)">
+          <svg class="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="var(--color-secondary, #3B6B8A)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
+            <circle cx="12" cy="7" r="4"/>
+          </svg>
+        </div>
+
+        <h2 class="text-heading font-heading text-foreground text-center">You're ready to generate</h2>
+        <p class="text-[12px] text-muted text-center mt-2 leading-relaxed" style="max-width:260px">
+          Add a voice profile so output carries your tone.
+        </p>
+
+        <div class="w-full flex flex-col gap-2 mt-6">
+          <button
+            onclick={() => oncomplete("profile")}
+            class="w-full py-3 text-sm font-medium text-white transition-all cursor-pointer rounded-md bg-accent hover:bg-accent-hover"
+            style="box-shadow:0 2px 8px rgba(122,51,64,0.15)"
+          >
+            Write a quick profile
+          </button>
+          <button
+            onclick={() => oncomplete("generate")}
+            class="w-full py-2.5 text-xs font-medium text-muted transition-all cursor-pointer rounded-md"
+            style="background:transparent;border:1px solid rgba(30,49,72,0.08)"
+          >
+            Skip for now
+          </button>
+        </div>
+
+        <p class="text-[10px] text-muted text-center mt-4 leading-relaxed" style="opacity:0.65">
+          Full AI extraction available on <a href="https://usenoren.ai" target="_blank" class="text-secondary" style="text-decoration:none">usenoren.ai</a> or the desktop app.
+        </p>
+      {/if}
     </div>
   {/if}
 </div>

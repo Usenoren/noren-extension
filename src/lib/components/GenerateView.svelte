@@ -1,11 +1,11 @@
 <script lang="ts">
   import { generate, generateStream, generateComparison, listFormats, injectGeneratedText, getProfileOverview, createCheckout, logEdit, type GenerateResult, type ComparisonResult, type FixSpan } from "$lib/api/noren";
-  import { isFree } from "$lib/stores/subscription.svelte";
+  import { isFree, isPro } from "$lib/stores/subscription.svelte";
   import { friendlyError } from "$lib/utils/errors";
   import LoadingSpinner from "./LoadingSpinner.svelte";
   import loomIdleUrl from "../../assets/loom-idle.png";
 
-  let { initialContext = "", oncontextused }: { initialContext?: string; oncontextused?: () => void } = $props();
+  let { initialContext = "", oncontextused, onnavigate }: { initialContext?: string; oncontextused?: () => void; onnavigate?: (tab: string) => void } = $props();
 
   // --- State ---
   let prompt = $state("");
@@ -338,16 +338,46 @@
     {/if}
   </div>
 
+  <div class="divider shrink-0"></div>
+
   <!-- No profile nudge -->
   {#if !hasProfile}
-    <div class="flex items-center gap-2 mx-4 mb-3 p-2 bg-tint border border-secondary/20 rounded-lg">
-      <p class="flex-1 text-[10px] text-muted leading-relaxed">
-        No voice profile yet, output won't carry your voice.
+    <div class="mx-4 mb-3 p-3.5 bg-tint border border-secondary/20 rounded-xl">
+      <div class="flex items-start gap-2.5 mb-2.5">
+        <div class="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 bg-surface border border-border" style="margin-top:1px">
+          <svg class="w-[13px] h-[13px] text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-[11px] font-medium text-foreground">No voice profile</p>
+          <p class="text-[10px] text-muted mt-0.5 leading-relaxed">Generation works, but output won't carry your voice.</p>
+        </div>
+      </div>
+      {#if isPro()}
+        <p class="text-[10px] text-muted leading-relaxed mb-2">Your profile will sync automatically after extraction in the desktop app or on <a href="https://usenoren.ai" target="_blank" class="text-secondary font-medium" style="text-decoration:none">usenoren.ai</a>.</p>
         <button
-          onclick={() => window.open("https://usenoren.ai", "_blank")}
-          class="text-secondary font-medium cursor-pointer hover:text-foreground"
-        >Upgrade to Pro</button> for AI extraction.
-      </p>
+          onclick={() => onnavigate?.("profile")}
+          class="text-[10px] text-secondary font-medium cursor-pointer hover:text-foreground"
+        >Or write a quick description</button>
+      {:else}
+        <div class="flex flex-col gap-1.5">
+          <button
+            onclick={() => onnavigate?.("profile")}
+            class="w-full text-left p-2 bg-surface border border-border rounded-lg hover:border-secondary transition-colors cursor-pointer"
+          >
+            <span class="text-[11px] font-medium text-foreground">Write a quick voice description</span>
+            <span class="text-[9px] text-muted block mt-px">Takes 2 minutes. Noren uses it to match your tone.</span>
+          </button>
+          <button
+            onclick={() => window.open("https://usenoren.ai", "_blank")}
+            class="w-full text-left p-2 bg-surface border border-border rounded-lg hover:border-secondary transition-colors cursor-pointer"
+          >
+            <span class="text-[11px] font-medium text-secondary">Upgrade to Pro</span>
+            <span class="text-[9px] text-muted block mt-px">Get AI extraction and automatic profile sync.</span>
+          </button>
+        </div>
+      {/if}
     </div>
   {/if}
 
@@ -355,7 +385,7 @@
   <div class="flex-1 min-h-0 overflow-y-auto px-4">
     {#if phase === "idle" && !comparison && !output}
       <div class="h-full flex flex-col items-center justify-center gap-5">
-        <img src={loomIdleUrl} alt="" class="w-[130px] opacity-80 brightness-50 dark:opacity-50 dark:brightness-100 dark:invert" />
+        <img src={loomIdleUrl} alt="" class="w-[130px] loom-idle-img" />
         <div class="flex flex-col items-center gap-1.5">
           <p class="text-display text-foreground/75">Ready to weave</p>
           <p class="text-xs text-muted">Your voice is loaded and ready</p>

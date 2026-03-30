@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { PALETTES, getTheme, setAndPersistTheme, type PaletteId } from "$lib/stores/theme.svelte";
   import {
     getSettings,
     setProvider,
@@ -96,6 +97,7 @@
   let showProSection = $state(false);
   let keychainActive = $state(false);
   let clickOpensSidepanel = $state(true);
+  let selectedTheme = $state<PaletteId>(getTheme());
 
   // Dynamic Claude model list
   let claudeModels = $state<{ id: string; label: string }[]>([]);
@@ -520,6 +522,43 @@
       <LoadingSpinner />
     </div>
   {:else}
+    <!-- Appearance — Palette Picker -->
+    <div>
+      <span class="section-label mb-2">Appearance</span>
+      <div class="grid grid-cols-4 gap-2">
+        {#each PALETTES as palette}
+          <button
+            onclick={() => { selectedTheme = palette.id; setAndPersistTheme(palette.id); }}
+            class="flex flex-col items-center gap-1 cursor-pointer group"
+          >
+            <div
+              class="w-full h-[48px] rounded-md overflow-hidden relative transition-all duration-200"
+              style="border: 2px solid {selectedTheme === palette.id ? '#7A3340' : 'transparent'};
+                     box-shadow: {selectedTheme === palette.id ? '0 0 10px rgba(122,51,64,0.3)' : 'none'}"
+            >
+              <div style="background:{palette.surface};height:8px;width:100%"></div>
+              <div class="flex items-center justify-center" style="background:{palette.bg};height:40px;padding:6px">
+                <div
+                  class="rounded-sm relative"
+                  style="background:{palette.surface};width:80%;height:22px;border-left:2px solid {palette.accent}"
+                >
+                  <div
+                    class="absolute rounded-full"
+                    style="background:{palette.accent};width:4px;height:4px;top:4px;right:4px"
+                  ></div>
+                </div>
+              </div>
+            </div>
+            <span class="font-mono text-[9px] font-medium text-foreground leading-tight">{palette.name}</span>
+            <span class="font-heading italic text-[8px] text-muted -mt-0.5">{palette.vibe}</span>
+            {#if palette.id === "kon"}
+              <span class="font-mono text-[7px] font-medium px-1 py-px rounded-sm bg-accent text-white opacity-80 -mt-0.5">default</span>
+            {/if}
+          </button>
+        {/each}
+      </div>
+    </div>
+
     <!-- Inference Mode Toggle -->
     <div>
       <span class="section-label mb-2">Inference</span>

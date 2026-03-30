@@ -341,7 +341,7 @@
     }
   }
 
-  async function handleDeleteChat(id: string, e: MouseEvent) {
+  async function handleDeleteChat(id: string, e: MouseEvent | KeyboardEvent) {
     e.stopPropagation();
     try {
       await deleteChat(id);
@@ -470,10 +470,10 @@
   >
     {#if messages.length === 0}
       <div class="flex flex-col items-center justify-center h-full gap-3">
-        <img src={loomIdleUrl} alt="" class="w-[120px] opacity-80 brightness-50 dark:opacity-50 dark:brightness-100 dark:invert" />
+        <img src={loomIdleUrl} alt="" class="w-[120px] loom-idle-img" />
         <div class="text-center">
-          <p class="font-heading italic text-lg text-foreground/60">Your voice, in conversation</p>
-          <p class="text-[11px] text-muted mt-1">Noren responds in your writing style.</p>
+          <p class="font-heading italic text-lg text-foreground/60">Your space to think</p>
+          <p class="text-[11px] text-muted mt-1">Brainstorm, explore, plan. No voice enforcement.</p>
         </div>
       </div>
     {:else}

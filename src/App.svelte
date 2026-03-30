@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getSettings, getContextText, getProfileOverview } from "$lib/api/noren";
   import { refresh as refreshSubscription } from "$lib/stores/subscription.svelte";
+  import { syncThemeFromStorage } from "$lib/stores/theme.svelte";
   import GenerateView from "$lib/components/GenerateView.svelte";
   import ChatView from "$lib/components/ChatView.svelte";
   import RepurposeView from "$lib/components/RepurposeView.svelte";
@@ -28,6 +29,7 @@
   ];
 
   $effect(() => {
+    syncThemeFromStorage();
     chrome.storage.local.get("onboarding_complete").then(({ onboarding_complete }) => {
       if (!onboarding_complete) {
         showOnboarding = true;
@@ -66,11 +68,21 @@
     contextText = "";
   }
 
-  function handleOnboardingComplete(tab: "generate" | "settings") {
+  function handleOnboardingComplete(tab: "generate" | "settings" | "profile") {
     showOnboarding = false;
-    view = tab;
-    if (tab === "generate") {
+    view = tab as View;
+    if (tab === "generate" || tab === "profile") {
       refreshSubscription();
+    }
+    getProfileOverview().then((overview) => {
+      hasProfile = overview.exists;
+    }).catch(() => {});
+  }
+
+  function handleNavigate(tab: string) {
+    const validViews: View[] = ["generate", "chat", "profile", "settings", "help"];
+    if (validViews.includes(tab as View)) {
+      view = tab as View;
     }
   }
 </script>
@@ -139,10 +151,13 @@
     </span>
   </nav>
 
+  <!-- Accent thread -->
+  <div class="divider-thread"></div>
+
   <!-- Content area — all views stay mounted to preserve state -->
   <div class="flex-1 min-h-0 flex flex-col overflow-hidden relative">
     <div class="absolute inset-0 flex flex-col overflow-hidden" class:hidden={view !== "generate"}>
-      <GenerateView initialContext={contextText} oncontextused={clearContext} />
+      <GenerateView initialContext={contextText} oncontextused={clearContext} onnavigate={handleNavigate} />
     </div>
     <div class="absolute inset-0 flex flex-col overflow-hidden" class:hidden={view !== "repurpose"}>
       <RepurposeView />

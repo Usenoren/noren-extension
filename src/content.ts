@@ -24,8 +24,41 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 });
 
+// ============================================================
+// Last-focused element tracking for inject
+// ============================================================
+// When the sidepanel/popup steals focus, document.activeElement
+// becomes <body>. We track the last editable element the user
+// focused so inject can target it reliably.
+
+let lastFocusedEditable: HTMLElement | null = null;
+
+document.addEventListener("focusin", (e) => {
+  const el = e.target as HTMLElement;
+  if (
+    el instanceof HTMLTextAreaElement ||
+    el instanceof HTMLInputElement ||
+    el?.getAttribute("contenteditable") === "true"
+  ) {
+    lastFocusedEditable = el;
+  }
+}, true);
+
 function injectText(text: string) {
-  const el = document.activeElement;
+  // Prefer the currently active element if it's editable,
+  // otherwise fall back to the last tracked editable element
+  let el: HTMLElement | null = document.activeElement as HTMLElement;
+
+  const isEditable =
+    el instanceof HTMLTextAreaElement ||
+    el instanceof HTMLInputElement ||
+    el?.getAttribute("contenteditable") === "true";
+
+  if (!isEditable) {
+    el = lastFocusedEditable;
+  }
+
+  if (!el || !el.isConnected) return;
 
   if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
     el.focus();
@@ -36,9 +69,7 @@ function injectText(text: string) {
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
   } else if (el?.getAttribute("contenteditable") === "true") {
-    (el as HTMLElement).focus();
-    document.execCommand("insertText", false, text);
-  } else {
+    el.focus();
     document.execCommand("insertText", false, text);
   }
 }
@@ -88,6 +119,20 @@ function getSurroundingContext(selection: Selection, maxChars = 200): string | n
 
 let toolbarMount: ShadowMountResult | null = null;
 let processingAction = false;
+
+// Cache theme synchronously so toolbar renders with correct palette instantly
+let cachedTheme = "kon";
+chrome.storage.local.get("theme").then(({ theme }) => {
+  if (theme) cachedTheme = theme;
+});
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.theme) {
+    cachedTheme = changes.theme.newValue || "kon";
+    if (toolbarMount) {
+      toolbarMount.host.setAttribute("data-theme", cachedTheme);
+    }
+  }
+});
 
 // Use capture phase so page scripts can't swallow the event with stopPropagation
 document.addEventListener("mouseup", (e) => {
@@ -178,6 +223,7 @@ function showToolbar(x: number, y: number, selectedText: string, below = false) 
     toolbarCss,
     "noren-selection-toolbar",
   );
+  toolbarMount.host.setAttribute("data-theme", cachedTheme);
   document.body.appendChild(toolbarMount.host);
 }
 
@@ -215,6 +261,7 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
     toolbarCss,
     "noren-selection-toolbar",
   );
+  toolbarMount.host.setAttribute("data-theme", cachedTheme);
   document.body.appendChild(toolbarMount.host);
 
   try {

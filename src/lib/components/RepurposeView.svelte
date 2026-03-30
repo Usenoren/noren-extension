@@ -113,7 +113,7 @@
   {#if !FEATURE_ENABLED}
     <!-- Coming soon -->
     <div class="flex-1 flex flex-col items-center justify-center px-6">
-      <img src={loomIdleUrl} alt="" class="w-[100px] mb-4 opacity-80 brightness-50 dark:opacity-50 dark:brightness-100 dark:invert" />
+      <img src={loomIdleUrl} alt="" class="w-[100px] mb-4 loom-idle-img" />
       <p class="text-sm text-foreground font-medium mb-1">Coming soon</p>
       <p class="text-xs text-muted text-center leading-relaxed">
         Transform a blog post into tweets, emails, and LinkedIn posts. One piece of content, every format, all in your voice.

@@ -294,7 +294,7 @@
     <div class="flex flex-col h-full">
       <div class="flex-1 flex flex-col items-center justify-center gap-4 px-6">
         <div class="text-center">
-          <img src={loomIdleUrl} alt="" class="w-[100px] mx-auto mb-3 opacity-80 brightness-50 dark:opacity-50 dark:brightness-100 dark:invert" />
+          <img src={loomIdleUrl} alt="" class="w-[100px] mx-auto mb-3 loom-idle-img" />
           <h3 class="text-sm font-medium text-foreground">Create Your Voice Profile</h3>
           <p class="text-[11px] text-muted mt-1.5 leading-relaxed max-w-[280px]">
             Describe how you write — your tone, style, patterns. Noren uses this to make every generation sound like you.
