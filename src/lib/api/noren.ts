@@ -984,7 +984,7 @@ async function byokRepurpose(params: {
 
   // Resolve targets
   const FORMAT_FAMILIES = [
-    ["blog", "article", "newsletter", "essay"],
+    ["blog", "article", "newsletter", "essay", "longform"],
     ["tweet", "thread", "twitter"],
     ["email", "slack"],
     ["linkedin", "memo"],
