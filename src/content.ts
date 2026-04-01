@@ -307,10 +307,16 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
   let streamedText = "";
   let finalContent = "";
 
+  // Only stream into textarea/input where we control cursor position.
+  // Contenteditable fields (Reddit, etc.) get cursor drift from React re-renders,
+  // so we buffer and insert once on done.
+  const canStreamChunks = streamIntoField && targetEl &&
+    (targetEl instanceof HTMLTextAreaElement || targetEl instanceof HTMLInputElement);
+
   port.onMessage.addListener((event) => {
     if (event.type === "delta") {
       streamedText += event.text;
-      if (streamIntoField && targetEl) {
+      if (canStreamChunks && targetEl) {
         appendToField(targetEl, event.text);
       }
     } else if (event.type === "done") {
@@ -318,8 +324,11 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
       port.disconnect();
       dismissToolbar();
 
-      if (streamIntoField) {
-        // Text already streamed in
+      if (streamIntoField && !canStreamChunks && targetEl) {
+        // Contenteditable: insert full text at once
+        appendToField(targetEl, finalContent);
+      } else if (canStreamChunks) {
+        // textarea/input: text already streamed in
       } else {
         // No target at start. Check again (user may have clicked into a field while waiting)
         const lateTarget = getEditableTarget();
