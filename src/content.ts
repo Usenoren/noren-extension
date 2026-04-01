@@ -250,6 +250,10 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
     ty = belowPos ? r.bottom : r.top;
   }
 
+  // Determine if we're in an editable field (stream into it) or read-only (copy at end)
+  const targetEl = getEditableTarget();
+  const streamIntoField = !!targetEl;
+
   // Destroy old toolbar, create loading one
   if (toolbarMount) {
     toolbarMount.destroy();
@@ -265,49 +269,93 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
   toolbarMount.host.setAttribute("data-theme", cachedTheme);
   document.body.appendChild(toolbarMount.host);
 
-  try {
-    // Gather context signals for voice-aware routing
-    const detectedFormat = detectFormatFromUrl();
-    let surroundingContext: string | null = null;
-    if (action === "reply" || action === "rewrite") {
-      const sel = window.getSelection();
-      if (sel) surroundingContext = getSurroundingContext(sel);
-    }
-
-    const response = await chrome.runtime.sendMessage({
-      type: "quick-action",
-      action,
-      text,
-      detectedFormat,
-      surroundingContext,
-      intent,
-    });
-
-    dismissToolbar();
-
-    if (response?.result) {
-      // Check if we're in an editable field — inject there
-      const el = document.activeElement;
-      if (
-        el instanceof HTMLTextAreaElement ||
-        el instanceof HTMLInputElement ||
-        el?.getAttribute("contenteditable") === "true"
-      ) {
-        injectText(response.result);
-      } else {
-        // Read-only context — copy to clipboard
-        await navigator.clipboard.writeText(response.result);
-        showCopiedNotification();
+  // If streaming into field, clear the selection first
+  if (streamIntoField && targetEl) {
+    targetEl.focus();
+    if (targetEl instanceof HTMLTextAreaElement || targetEl instanceof HTMLInputElement) {
+      const start = targetEl.selectionStart ?? 0;
+      const end = targetEl.selectionEnd ?? targetEl.value.length;
+      targetEl.value = targetEl.value.slice(0, start) + targetEl.value.slice(end);
+      targetEl.selectionStart = targetEl.selectionEnd = start;
+    } else if (targetEl.getAttribute("contenteditable") === "true") {
+      // Delete selected content, cursor stays at deletion point
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        selection.getRangeAt(0).deleteContents();
       }
-    } else if (response?.error) {
-      dismissToolbar();
-      console.error("[Noren] Quick action error:", response.error);
-      showErrorNotification(response.error);
     }
-  } catch (e) {
-    dismissToolbar();
-    console.error("[Noren] Quick action failed:", e);
-    showErrorNotification(String(e));
+  }
+
+  // Gather context signals for voice-aware routing
+  const detectedFormat = detectFormatFromUrl();
+  let surroundingContext: string | null = null;
+  if (action === "reply" || action === "rewrite") {
+    const currentSel = window.getSelection();
+    if (currentSel) surroundingContext = getSurroundingContext(currentSel);
+  }
+
+  // Stream via port connection to background
+  const port = chrome.runtime.connect({ name: "quick-action-stream" });
+  let streamedText = "";
+  let finalContent = "";
+
+  port.onMessage.addListener((event) => {
+    if (event.type === "delta") {
+      streamedText += event.text;
+      if (streamIntoField && targetEl) {
+        appendToField(targetEl, event.text);
+      }
+    } else if (event.type === "done") {
+      finalContent = event.content || streamedText;
+      port.disconnect();
+      dismissToolbar();
+
+      if (!streamIntoField) {
+        // Read-only context: copy final result to clipboard
+        navigator.clipboard.writeText(finalContent).then(() => {
+          showCopiedNotification();
+        });
+      }
+      // If streamed into field, text is already there
+    } else if (event.type === "error") {
+      port.disconnect();
+      dismissToolbar();
+      console.error("[Noren] Quick action error:", event.message);
+      showErrorNotification(event.message);
+    }
+  });
+
+  port.onDisconnect.addListener(() => {
+    if (!finalContent && !streamedText) {
+      dismissToolbar();
+      showErrorNotification("Connection lost");
+    }
+  });
+
+  port.postMessage({ action, text, detectedFormat, surroundingContext, intent });
+}
+
+function getEditableTarget(): HTMLElement | null {
+  const el = document.activeElement as HTMLElement;
+  if (
+    el instanceof HTMLTextAreaElement ||
+    el instanceof HTMLInputElement ||
+    el?.getAttribute("contenteditable") === "true"
+  ) {
+    return el;
+  }
+  return lastFocusedEditable;
+}
+
+function appendToField(el: HTMLElement, text: string) {
+  if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
+    const pos = el.selectionStart ?? el.value.length;
+    el.value = el.value.slice(0, pos) + text + el.value.slice(pos);
+    el.selectionStart = el.selectionEnd = pos + text.length;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  } else if (el.getAttribute("contenteditable") === "true") {
+    el.focus();
+    document.execCommand("insertText", false, text);
   }
 }
 

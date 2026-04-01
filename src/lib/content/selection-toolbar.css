@@ -225,6 +225,7 @@
   animation: noren-thread-pulse 1.4s ease-in-out infinite;
 }
 
+
 /* ─── Morph animation ─── */
 .noren-morph-enter {
   animation: noren-morph-in 0.25s cubic-bezier(0.23, 1, 0.32, 1) forwards;

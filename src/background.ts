@@ -1,6 +1,6 @@
 // Noren — Chrome extension service worker
 
-import { generate } from "$lib/api/noren";
+import { generate, generateStream } from "$lib/api/noren";
 
 // Strip Origin header on Anthropic API requests (runs every service worker start)
 chrome.declarativeNetRequest.updateDynamicRules({
@@ -78,14 +78,24 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 // Quick action prompt templates
 // rewrite/reply: voice profile injected via system prompt in byokGenerate
 // fix: no voice profile (purely mechanical)
-const QUICK_ACTION_PROMPTS: Record<string, (text: string, ctx?: string | null, intent?: string | null) => string> = {
+const REPLY_LENGTH_HINTS: Record<string, string> = {
+  reddit: "Reddit reply: 2-4 sentences typical.",
+  tweet: "Tweet reply: 1-2 sentences, under 280 characters.",
+  linkedin: "LinkedIn comment: 2-4 sentences typical.",
+  slack: "Slack message: 1-3 sentences typical.",
+  email: "Email reply: match the length of the email you're replying to.",
+};
+
+const QUICK_ACTION_PROMPTS: Record<string, (text: string, ctx?: string | null, intent?: string | null, format?: string | null) => string> = {
   rewrite: (text, ctx) => {
     let prompt = `Rewrite this in my voice. Change how it's said, not what it says. Preserve the meaning and structure. Follow the voice profile closely: use its word preferences, sentence patterns, and rhetorical moves. Return only the rewritten text.`;
     if (ctx) prompt += `\n\nSurrounding context (do not include in output, use for coherence only):\n${ctx}`;
     return `${prompt}\n\n${text}`;
   },
-  reply: (text, ctx, intent) => {
-    let prompt = `Engage with this post in my voice. Follow the voice profile closely: use its word preferences, sentence patterns, and rhetorical moves. Match the register and length appropriate for the platform. Return only the reply.`;
+  reply: (text, ctx, intent, format) => {
+    let prompt = `Engage with this post in my voice. Follow the voice profile closely: use its word preferences, sentence patterns, and rhetorical moves. Return only the reply.`;
+    const lengthHint = format && REPLY_LENGTH_HINTS[format];
+    if (lengthHint) prompt += ` ${lengthHint}`;
     if (intent) prompt += `\n\nDirection (use as the angle, do not repeat verbatim): ${intent}`;
     if (ctx) prompt += `\n\nSurrounding context:\n${ctx}`;
     return `${prompt}\n\nPost to engage with:\n${text}`;
@@ -122,26 +132,40 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       });
     return true;
   }
+});
 
-  // Quick action from selection toolbar (voice-aware)
-  if (message.type === "quick-action") {
+// Port-based streaming for quick actions
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "quick-action-stream") return;
+
+  port.onMessage.addListener(async (message) => {
     const { action, text, detectedFormat, surroundingContext, intent } = message;
     const promptFn = QUICK_ACTION_PROMPTS[action] || QUICK_ACTION_PROMPTS.rewrite;
 
-    (async () => {
-      try {
-        const result = await generate({
-          prompt: promptFn(text, surroundingContext, intent),
-          format: action !== "fix" ? (detectedFormat || "general") : "general",
-          level: "guided",
-          quickAction: action,
-          mode: action === "rewrite" ? "adapt" : "generate",
-        });
-        sendResponse({ result: result.text });
-      } catch (e) {
-        sendResponse({ error: String(e) });
+    try {
+      const stream = generateStream({
+        prompt: promptFn(text, surroundingContext, intent, detectedFormat),
+        format: action !== "fix" ? (detectedFormat || "general") : "general",
+        level: "guided",
+        quickAction: action,
+        mode: action === "rewrite" ? "adapt" : "generate",
+      });
+
+      for await (const event of stream) {
+        if (event.type === "delta") {
+          port.postMessage({ type: "delta", text: event.text });
+        } else if (event.type === "done") {
+          port.postMessage({ type: "done", content: event.content });
+        } else if (event.type === "error") {
+          port.postMessage({ type: "error", message: event.message });
+        }
       }
-    })();
-    return true;
-  }
+    } catch (e) {
+      try {
+        port.postMessage({ type: "error", message: String(e) });
+      } catch {
+        // Port already disconnected
+      }
+    }
+  });
 });

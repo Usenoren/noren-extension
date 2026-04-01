@@ -1648,11 +1648,11 @@ async function* byokGenerateStream(params: {
     userContent = `[Format: ${params.format}] [Enforcement: ${params.level}]\n\n${userContent}`;
   }
 
-  // Quick actions use Haiku — fast enough without streaming
+  // Quick actions on Anthropic: Haiku for fix (no voice), Sonnet for rewrite/reply (voice fidelity)
   if (params.quickAction && settings.provider.type === "anthropic") {
-    const provider = { ...settings.provider, model: "claude-haiku-4-5-20251001" };
-    const result = await byokAnthropic(provider, apiKey, system, userContent, true);
-    yield { type: "done", content: result.text, input_tokens: result.input_tokens, output_tokens: result.output_tokens, model: "byok" };
+    const model = params.quickAction === "fix" ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-6";
+    const provider = { ...settings.provider, model };
+    yield* streamByokAnthropic(provider, apiKey, system, userContent, true);
     return;
   }
 
@@ -1668,8 +1668,9 @@ async function* streamByokAnthropic(
   apiKey: string | null,
   system: string,
   userContent: string,
+  skipThinking = false,
 ): AsyncGenerator<StreamEvent> {
-  const thinking = await getThinkingSettings();
+  const thinking = skipThinking ? { enabled: false, budget: 0 } : await getThinkingSettings();
   const isClaudeToken = provider.name === "claude-token";
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
