@@ -219,9 +219,6 @@ function isInsideNorenUI(node: Node): boolean {
 function showToolbar(x: number, y: number, selectedText: string, below = false) {
   dismissToolbar();
 
-  // Capture editable target NOW, before toolbar click steals focus
-  const capturedTarget = getEditableTarget();
-
   // Clamp x to viewport
   const cx = Math.max(120, Math.min(x, window.innerWidth - 120));
 
@@ -232,7 +229,7 @@ function showToolbar(x: number, y: number, selectedText: string, below = false) 
       y,
       loading: false,
       below,
-      onAction: (action: string, intent?: string) => handleQuickAction(action, selectedText, intent, capturedTarget),
+      onAction: (action: string, intent?: string) => handleQuickAction(action, selectedText, intent),
     },
     toolbarCss,
     "noren-selection-toolbar",
@@ -249,7 +246,7 @@ function dismissToolbar() {
   processingAction = false;
 }
 
-async function handleQuickAction(action: string, text: string, intent?: string, capturedTarget?: HTMLElement | null) {
+async function handleQuickAction(action: string, text: string, intent?: string) {
   processingAction = true;
 
   // Show loading state — recreate toolbar with loading=true
@@ -263,8 +260,7 @@ async function handleQuickAction(action: string, text: string, intent?: string, 
     ty = belowPos ? r.bottom : r.top;
   }
 
-  // Use pre-captured target (before toolbar click stole focus)
-  const targetEl = capturedTarget || getEditableTarget();
+  const targetEl = getEditableTarget();
   const frameworkEditor = targetEl ? isFrameworkEditor(targetEl) : false;
   const streamIntoField = !!targetEl;
 
