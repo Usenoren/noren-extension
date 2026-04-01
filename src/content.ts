@@ -70,7 +70,17 @@ function injectText(text: string) {
     el.dispatchEvent(new Event("change", { bubbles: true }));
   } else if (el?.getAttribute("contenteditable") === "true") {
     el.focus();
-    document.execCommand("insertText", false, text);
+    if (isFrameworkEditor(el)) {
+      const dt = new DataTransfer();
+      dt.setData("text/plain", text);
+      el.dispatchEvent(new ClipboardEvent("paste", {
+        clipboardData: dt,
+        bubbles: true,
+        cancelable: true,
+      }));
+    } else {
+      document.execCommand("insertText", false, text);
+    }
   }
 }
 
@@ -250,10 +260,10 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
     ty = belowPos ? r.bottom : r.top;
   }
 
-  // Determine if we're in an editable field (stream into it) or read-only (copy at end)
+  // Determine if we're in an editable field and what insertion method to use
   const targetEl = getEditableTarget();
-  const blockedEditor = hasBlockedEditor();
-  const streamIntoField = !!targetEl && !blockedEditor;
+  const frameworkEditor = targetEl ? isFrameworkEditor(targetEl) : false;
+  const streamIntoField = !!targetEl;
 
   // Destroy old toolbar, create loading one
   if (toolbarMount) {
@@ -299,37 +309,29 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
   const port = chrome.runtime.connect({ name: "quick-action-stream" });
   let streamedText = "";
   let finalContent = "";
-  let fieldAcceptsInput = streamIntoField;
-  let testedField = false;
 
   port.onMessage.addListener((event) => {
     if (event.type === "delta") {
       streamedText += event.text;
-      if (fieldAcceptsInput && targetEl) {
+      // Standard editors: stream text in as it arrives
+      if (streamIntoField && !frameworkEditor && targetEl) {
         appendToField(targetEl, event.text);
-        // After first chunk, verify the field actually accepted the text
-        if (!testedField) {
-          testedField = true;
-          const fieldText = targetEl instanceof HTMLTextAreaElement || targetEl instanceof HTMLInputElement
-            ? targetEl.value
-            : targetEl.textContent || "";
-          if (!fieldText.includes(event.text)) {
-            // Field blocked insertion, fall back to clipboard on done
-            fieldAcceptsInput = false;
-          }
-        }
       }
+      // Framework editors: buffer chunks, paste once on done
     } else if (event.type === "done") {
       finalContent = event.content || streamedText;
       port.disconnect();
       dismissToolbar();
 
-      if (!fieldAcceptsInput) {
+      if (streamIntoField && frameworkEditor && targetEl) {
+        // Single synthetic paste for framework editors (Draft.js, Lexical)
+        appendToField(targetEl, finalContent, true);
+      } else if (!streamIntoField) {
         navigator.clipboard.writeText(finalContent).then(() => {
           showCopiedNotification();
         });
       }
-      // If streamed into field, text is already there
+      // Standard editors: text already streamed in
     } else if (event.type === "error") {
       port.disconnect();
       dismissToolbar();
@@ -348,15 +350,17 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
   port.postMessage({ action, text, detectedFormat, surroundingContext, intent });
 }
 
-function hasBlockedEditor(): boolean {
-  // Platforms with custom editors that block programmatic text insertion
-  const host = location.hostname;
-  if (host === "twitter.com" || host === "x.com" || host.endsWith(".x.com")) return true;
-  if (host.endsWith(".linkedin.com") || host === "linkedin.com") return true;
-  // Check for Draft.js editors (used by Twitter, Facebook, etc.)
-  const active = document.activeElement;
-  if (active?.closest("[data-testid='tweetTextarea_0']")) return true;
-  if (active?.closest(".DraftEditor-root")) return true;
+function isFrameworkEditor(el: HTMLElement | null): boolean {
+  if (!el) return false;
+  // Draft.js (Twitter, Facebook)
+  if (el.closest("[data-testid^='tweetTextarea_']")) return true;
+  if (el.closest(".DraftEditor-root")) return true;
+  // Lexical (Facebook)
+  if (el.closest("[data-lexical-editor]")) return true;
+  // LinkedIn's editor
+  if (el.closest(".ql-editor")) return true;
+  // Generic: contenteditable inside a React root with no standard editing support
+  if (el.getAttribute("contenteditable") === "true" && el.closest("[data-reactroot]")) return true;
   return false;
 }
 
@@ -372,7 +376,7 @@ function getEditableTarget(): HTMLElement | null {
   return lastFocusedEditable;
 }
 
-function appendToField(el: HTMLElement, text: string) {
+function appendToField(el: HTMLElement, text: string, useClipboardEvent = false) {
   if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
     const pos = el.selectionStart ?? el.value.length;
     el.value = el.value.slice(0, pos) + text + el.value.slice(pos);
@@ -380,24 +384,17 @@ function appendToField(el: HTMLElement, text: string) {
     el.dispatchEvent(new Event("input", { bubbles: true }));
   } else if (el.getAttribute("contenteditable") === "true") {
     el.focus();
-    // Try execCommand first (works on standard contenteditable)
-    const ok = document.execCommand("insertText", false, text);
-    if (!ok) {
-      // Fallback: simulate InputEvent for React-based editors (Twitter, LinkedIn, Slack)
-      const inputEvent = new InputEvent("beforeinput", {
-        inputType: "insertText",
-        data: text,
+    if (useClipboardEvent) {
+      // Synthetic paste for framework editors (Draft.js, Lexical, etc.)
+      const dt = new DataTransfer();
+      dt.setData("text/plain", text);
+      el.dispatchEvent(new ClipboardEvent("paste", {
+        clipboardData: dt,
         bubbles: true,
         cancelable: true,
-        composed: true,
-      });
-      el.dispatchEvent(inputEvent);
-      el.dispatchEvent(new InputEvent("input", {
-        inputType: "insertText",
-        data: text,
-        bubbles: true,
-        composed: true,
       }));
+    } else {
+      document.execCommand("insertText", false, text);
     }
   }
 }
