@@ -329,12 +329,20 @@ async function handleQuickAction(action: string, text: string, intent?: string, 
       if (streamIntoField && frameworkEditor && targetEl) {
         // Single synthetic paste for framework editors (Draft.js, Lexical)
         appendToField(targetEl, finalContent, true);
-      } else if (!streamIntoField) {
-        navigator.clipboard.writeText(finalContent).then(() => {
-          showCopiedNotification();
-        });
+      } else if (streamIntoField) {
+        // Standard editors: text already streamed in
+      } else {
+        // No target at start. Check again now (user may have clicked into a field while waiting)
+        const lateTarget = getEditableTarget();
+        if (lateTarget) {
+          const usePaste = isFrameworkEditor(lateTarget);
+          appendToField(lateTarget, finalContent, usePaste);
+        } else {
+          navigator.clipboard.writeText(finalContent).then(() => {
+            showCopiedNotification();
+          });
+        }
       }
-      // Standard editors: text already streamed in
     } else if (event.type === "error") {
       port.disconnect();
       dismissToolbar();
