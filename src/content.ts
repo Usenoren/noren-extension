@@ -390,7 +390,17 @@ function appendToField(el: HTMLElement, text: string) {
     el.dispatchEvent(new Event("input", { bubbles: true }));
   } else if (el.getAttribute("contenteditable") === "true") {
     el.focus();
-    document.execCommand("insertText", false, text);
+    // Split by newlines and insert line breaks between paragraphs.
+    // execCommand("insertText") swallows \n in contenteditable.
+    const parts = text.split("\n");
+    for (let i = 0; i < parts.length; i++) {
+      if (parts[i]) {
+        document.execCommand("insertText", false, parts[i]);
+      }
+      if (i < parts.length - 1) {
+        document.execCommand("insertLineBreak");
+      }
+    }
   }
 }
 
