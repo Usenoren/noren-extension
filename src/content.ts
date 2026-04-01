@@ -298,20 +298,32 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
   const port = chrome.runtime.connect({ name: "quick-action-stream" });
   let streamedText = "";
   let finalContent = "";
+  let fieldAcceptsInput = streamIntoField;
+  let testedField = false;
 
   port.onMessage.addListener((event) => {
     if (event.type === "delta") {
       streamedText += event.text;
-      if (streamIntoField && targetEl) {
+      if (fieldAcceptsInput && targetEl) {
         appendToField(targetEl, event.text);
+        // After first chunk, verify the field actually accepted the text
+        if (!testedField) {
+          testedField = true;
+          const fieldText = targetEl instanceof HTMLTextAreaElement || targetEl instanceof HTMLInputElement
+            ? targetEl.value
+            : targetEl.textContent || "";
+          if (!fieldText.includes(event.text)) {
+            // Field blocked insertion, fall back to clipboard on done
+            fieldAcceptsInput = false;
+          }
+        }
       }
     } else if (event.type === "done") {
       finalContent = event.content || streamedText;
       port.disconnect();
       dismissToolbar();
 
-      if (!streamIntoField) {
-        // Read-only context: copy final result to clipboard
+      if (!fieldAcceptsInput) {
         navigator.clipboard.writeText(finalContent).then(() => {
           showCopiedNotification();
         });

@@ -852,6 +852,7 @@ export async function* generateStream(params: {
       generation_mode: params.mode || "generate",
       context: params.context,
       attachments: params.attachments,
+      quick_action: params.quickAction,
       stream: true,
     }),
   });
