@@ -307,27 +307,29 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
   let streamedText = "";
   let finalContent = "";
 
-  // Only stream into textarea/input where we control cursor position.
-  // Contenteditable fields (Reddit, etc.) get cursor drift from React re-renders,
-  // so we buffer and insert once on done.
-  const canStreamChunks = streamIntoField && targetEl &&
+  const isTextarea = streamIntoField && targetEl &&
     (targetEl instanceof HTMLTextAreaElement || targetEl instanceof HTMLInputElement);
+  const isContentEditable = streamIntoField && targetEl &&
+    !isTextarea && targetEl.getAttribute("contenteditable") === "true";
 
   port.onMessage.addListener((event) => {
     if (event.type === "delta") {
       streamedText += event.text;
-      if (canStreamChunks && targetEl) {
+      if (isTextarea && targetEl) {
+        // textarea/input: stream chunks directly, cursor tracked
         appendToField(targetEl, event.text);
+      } else if (isContentEditable && targetEl) {
+        // contenteditable: stream chunks for typing appearance (newlines lost, fixed on done)
+        document.execCommand("insertText", false, event.text);
       }
     } else if (event.type === "done") {
       finalContent = event.content || streamedText;
       port.disconnect();
       dismissToolbar();
 
-      if (streamIntoField && !canStreamChunks) {
-        // Contenteditable: use injectText which handles newlines correctly
-        injectText(finalContent);
-      } else if (canStreamChunks) {
+      if (isContentEditable) {
+        // Already streamed in via execCommand during deltas
+      } else if (isTextarea) {
         // textarea/input: text already streamed in
       } else {
         // No target at start. Check again (user may have clicked into a field while waiting)
