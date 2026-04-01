@@ -597,12 +597,13 @@
               <div class="sv-usage">
                 <div class="sv-usage-row">
                   <span>{proStatus.generations_used} / {proStatus.generations_limit} generations</span>
+                  <span>Resets {new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
                 </div>
                 <div class="sv-bar">
                   <div class="sv-bar-fill" style="width: {Math.min(100, (proStatus.generations_used / (proStatus.generations_limit || 1)) * 100)}%"></div>
                 </div>
                 <div class="sv-usage-meta">
-                  Chat and autocomplete don't count. Resets {new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  Chat and autocomplete don't count toward your limit.
                 </div>
               </div>
             </div>
