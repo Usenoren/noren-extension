@@ -86,6 +86,7 @@ function detectFormatFromUrl(): string | null {
   if (host === "slack.com" || host === "app.slack.com") return "slack";
   if (host.endsWith("medium.com") || host.endsWith("ghost.io")) return "blog";
   if (host.endsWith("substack.com")) return "newsletter";
+  if (host.endsWith("reddit.com")) return "reddit";
   return null;
 }
 
@@ -268,7 +269,7 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
     // Gather context signals for voice-aware routing
     const detectedFormat = detectFormatFromUrl();
     let surroundingContext: string | null = null;
-    if (action === "reply") {
+    if (action === "reply" || action === "rewrite") {
       const sel = window.getSelection();
       if (sel) surroundingContext = getSurroundingContext(sel);
     }
@@ -301,11 +302,60 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
     } else if (response?.error) {
       dismissToolbar();
       console.error("[Noren] Quick action error:", response.error);
+      showErrorNotification(response.error);
     }
   } catch (e) {
     dismissToolbar();
     console.error("[Noren] Quick action failed:", e);
+    showErrorNotification(String(e));
   }
+}
+
+function showErrorNotification(error: string) {
+  // Simplify common error messages
+  let msg = "Something went wrong";
+  const e = error.toLowerCase();
+  if (e.includes("api key") || e.includes("401")) msg = "Invalid API key. Check Settings.";
+  else if (e.includes("rate") || e.includes("429")) msg = "Rate limit reached. Try again shortly.";
+  else if (e.includes("no voice profile") || e.includes("profile")) msg = "No voice profile found.";
+  else if (e.includes("network") || e.includes("fetch")) msg = "Network error. Check your connection.";
+
+  const el = document.createElement("noren-notification");
+  el.style.cssText = `
+    all: initial;
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2147483647;
+    padding: 8px 16px;
+    background: #7A3340;
+    color: #E8E3DD;
+    font-family: -apple-system, system-ui, sans-serif;
+    font-size: 13px;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    animation: noren-notif 3s ease-out forwards;
+    pointer-events: none;
+  `;
+  el.textContent = msg;
+
+  const style = document.createElement("style");
+  style.textContent = `
+    @keyframes noren-notif {
+      0% { opacity: 0; transform: translateX(-50%) translateY(8px); }
+      10% { opacity: 1; transform: translateX(-50%) translateY(0); }
+      80% { opacity: 1; }
+      100% { opacity: 0; }
+    }
+  `;
+  document.head.appendChild(style);
+  document.body.appendChild(el);
+
+  setTimeout(() => {
+    el.remove();
+    style.remove();
+  }, 3100);
 }
 
 function showCopiedNotification() {

@@ -79,13 +79,16 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 // rewrite/reply: voice profile injected via system prompt in byokGenerate
 // fix: no voice profile (purely mechanical)
 const QUICK_ACTION_PROMPTS: Record<string, (text: string, ctx?: string | null, intent?: string | null) => string> = {
-  rewrite: (text) =>
-    `Rewrite this in my voice. Change how it's said, not what it says. Preserve the ideas and structure. Return only the rewritten text.\n\n${text}`,
+  rewrite: (text, ctx) => {
+    let prompt = `Rewrite this in my voice. Change how it's said, not what it says. Preserve the meaning and structure. Follow the voice profile closely: use its word preferences, sentence patterns, and rhetorical moves. Return only the rewritten text.`;
+    if (ctx) prompt += `\n\nSurrounding context (do not include in output, use for coherence only):\n${ctx}`;
+    return `${prompt}\n\n${text}`;
+  },
   reply: (text, ctx, intent) => {
-    let prompt = `Draft a reply to this in my voice. Return only the reply.`;
-    if (intent) prompt += `\n\nMy take: ${intent}`;
+    let prompt = `Engage with this post in my voice. Follow the voice profile closely: use its word preferences, sentence patterns, and rhetorical moves. Match the register and length appropriate for the platform. Return only the reply.`;
+    if (intent) prompt += `\n\nDirection (use as the angle, do not repeat verbatim): ${intent}`;
     if (ctx) prompt += `\n\nSurrounding context:\n${ctx}`;
-    return `${prompt}\n\nText to reply to:\n${text}`;
+    return `${prompt}\n\nPost to engage with:\n${text}`;
   },
   fix: (text) =>
     `Fix grammar, spelling, and punctuation. Make no stylistic changes. Return only the corrected text.\n\n${text}`,

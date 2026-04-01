@@ -559,13 +559,8 @@ async function byokGenerate(params: {
   let system = params.systemPrompt || "You are a helpful writing assistant. Match the user's voice and style.";
 
   // Inject voice profile if available (skip for "fix" — purely mechanical correction)
-  // Short text (<500 chars) gets compressed profile to save tokens on any provider.
   if (params.quickAction !== "fix") {
-    const textLength = params.prompt?.length || 0;
-    const useCompressed = !!params.quickAction && textLength < 500;
-    const voiceProfile = useCompressed
-      ? await getCompressedProfile(params.format)
-      : await getVoiceProfileText(params.format);
+    const voiceProfile = await getVoiceProfileText(params.format);
     if (voiceProfile) {
       system += `\n\n[Voice Profile — write in this style]:\n${voiceProfile}`;
     }
@@ -587,11 +582,9 @@ async function byokGenerate(params: {
     userContent = `[Format: ${params.format}] [Enforcement: ${params.level}]\n\n${userContent}`;
   }
 
-  // Quick actions: route by text length on Anthropic (Haiku for short, Sonnet for long)
+  // Quick actions on Anthropic: Haiku for fix (no voice needed), Sonnet for rewrite/reply (voice fidelity)
   if (params.quickAction && settings.provider.type === "anthropic") {
-    const textLength = params.prompt?.length || 0;
-    const useFast = params.quickAction === "fix" || textLength < 500;
-    const model = useFast ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-6";
+    const model = params.quickAction === "fix" ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-6";
     const provider = { ...settings.provider, model };
     return byokAnthropic(provider, apiKey, system, userContent, true);
   }
