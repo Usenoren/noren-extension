@@ -359,8 +359,6 @@ function isFrameworkEditor(el: HTMLElement | null): boolean {
   if (el.closest("[data-lexical-editor]")) return true;
   // LinkedIn's editor
   if (el.closest(".ql-editor")) return true;
-  // Generic: contenteditable inside a React root with no standard editing support
-  if (el.getAttribute("contenteditable") === "true" && el.closest("[data-reactroot]")) return true;
   return false;
 }
 
