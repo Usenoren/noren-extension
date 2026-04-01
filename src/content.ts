@@ -324,16 +324,16 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
       port.disconnect();
       dismissToolbar();
 
-      if (streamIntoField && !canStreamChunks && targetEl) {
-        // Contenteditable: insert full text at once
-        appendToField(targetEl, finalContent);
+      if (streamIntoField && !canStreamChunks) {
+        // Contenteditable: use injectText which handles newlines correctly
+        injectText(finalContent);
       } else if (canStreamChunks) {
         // textarea/input: text already streamed in
       } else {
         // No target at start. Check again (user may have clicked into a field while waiting)
         const lateTarget = getEditableTarget();
         if (lateTarget) {
-          appendToField(lateTarget, finalContent);
+          injectText(finalContent);
         } else {
           navigator.clipboard.writeText(finalContent).then(() => {
             showCopiedNotification();
