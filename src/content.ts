@@ -278,28 +278,27 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
   toolbarMount.host.setAttribute("data-theme", cachedTheme);
   document.body.appendChild(toolbarMount.host);
 
-  // If streaming into field, clear the selection first
-  if (streamIntoField && targetEl) {
-    targetEl.focus();
-    if (targetEl instanceof HTMLTextAreaElement || targetEl instanceof HTMLInputElement) {
-      const start = targetEl.selectionStart ?? 0;
-      const end = targetEl.selectionEnd ?? targetEl.value.length;
-      targetEl.value = targetEl.value.slice(0, start) + targetEl.value.slice(end);
-      targetEl.selectionStart = targetEl.selectionEnd = start;
-    } else if (targetEl.getAttribute("contenteditable") === "true") {
-      const selection = window.getSelection();
-      if (selection && selection.rangeCount > 0) {
-        selection.getRangeAt(0).deleteContents();
-      }
-    }
-  }
-
-  // Gather context signals for voice-aware routing
+  // Gather context signals before deletion (selection still intact)
   const detectedFormat = detectFormatFromUrl();
   let surroundingContext: string | null = null;
   if (action === "reply" || action === "rewrite") {
     const currentSel = window.getSelection();
     if (currentSel) surroundingContext = getSurroundingContext(currentSel);
+  }
+
+  // For rewrite/fix: clear the selected text so replacement streams into its place
+  let savedTextareaValue: string | undefined;
+  if ((action === "rewrite" || action === "fix") && streamIntoField && targetEl) {
+    targetEl.focus();
+    if (targetEl instanceof HTMLTextAreaElement || targetEl instanceof HTMLInputElement) {
+      savedTextareaValue = targetEl.value;
+      const start = targetEl.selectionStart ?? 0;
+      const end = targetEl.selectionEnd ?? targetEl.value.length;
+      targetEl.value = targetEl.value.slice(0, start) + targetEl.value.slice(end);
+      targetEl.selectionStart = targetEl.selectionEnd = start;
+    } else if (targetEl.getAttribute("contenteditable") === "true") {
+      document.execCommand("delete");
+    }
   }
 
   // Stream via port connection to background
@@ -362,6 +361,10 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
     } else if (event.type === "error") {
       port.disconnect();
       dismissToolbar();
+      if (savedTextareaValue !== undefined && !streamedText && targetEl) {
+        (targetEl as HTMLTextAreaElement).value = savedTextareaValue;
+        targetEl.dispatchEvent(new Event("input", { bubbles: true }));
+      }
       console.error("[Noren] Quick action error:", event.message);
       showErrorNotification(event.message);
     }
@@ -370,6 +373,10 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
   port.onDisconnect.addListener(() => {
     if (!finalContent && !streamedText) {
       dismissToolbar();
+      if (savedTextareaValue !== undefined && targetEl) {
+        (targetEl as HTMLTextAreaElement).value = savedTextareaValue;
+        targetEl.dispatchEvent(new Event("input", { bubbles: true }));
+      }
       showErrorNotification("Connection lost");
     }
   });
