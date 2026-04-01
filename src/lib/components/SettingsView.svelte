@@ -106,13 +106,11 @@
   // Pro section shows when logged in. No manual toggle.
   let showProSection = $derived(settings?.noren_pro_logged_in === true);
 
-  // Tier helpers — proStatus.tokens_limit is the source of truth for access.
-  // subscription.tier can lag behind (Stripe webhook delay, stale data).
-  let hasInferenceFromUsage = $derived(proStatus?.tokens_limit != null && proStatus.tokens_limit > 0);
+  // Tier helpers
+  let hasInference = $derived((proStatus?.generations_limit ?? 0) > 0);
   let isTrial = $derived(subscription?.is_trial === true);
-  let isProPaid = $derived((subscription?.tier === "pro" && !subscription?.is_trial) || hasInferenceFromUsage);
+  let isProPaid = $derived(subscription?.tier === "pro" && !subscription?.is_trial);
   let isFree = $derived(!isTrial && !isProPaid);
-  let hasInference = $derived(isProPaid || isTrial);
 
   const tiers = [
     { id: "pro", label: "Noren Pro", price: "$7", period: "/mo", desc: "Everything: extraction, inference, living profile, sync" },
@@ -593,19 +591,18 @@
           <!-- ═══ NOREN PRO (logged in) ═══ -->
 
           <!-- Usage (only if they have inference) -->
-          {#if hasInference && proStatus.tokens_used != null && proStatus.tokens_limit != null}
+          {#if hasInference && proStatus.generations_used != null && proStatus.generations_limit != null}
             <div class="sv-section">
               <span class="section-label sv-section-label">Usage</span>
               <div class="sv-usage">
                 <div class="sv-usage-row">
-                  <span>{proStatus.tokens_used.toLocaleString()} tokens</span>
-                  <span>{proStatus.tokens_limit.toLocaleString()} limit</span>
+                  <span>{proStatus.generations_used} / {proStatus.generations_limit} generations</span>
                 </div>
                 <div class="sv-bar">
-                  <div class="sv-bar-fill" style="width: {Math.min(100, (proStatus.tokens_used / (proStatus.tokens_limit || 1)) * 100)}%"></div>
+                  <div class="sv-bar-fill" style="width: {Math.min(100, (proStatus.generations_used / (proStatus.generations_limit || 1)) * 100)}%"></div>
                 </div>
                 <div class="sv-usage-meta">
-                  {proStatus.requests_this_month} requests this month{#if subscription?.current_period_end}. Period ends {formatDate(subscription.current_period_end)}{/if}
+                  Chat and autocomplete don't count. Resets {new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                 </div>
               </div>
             </div>

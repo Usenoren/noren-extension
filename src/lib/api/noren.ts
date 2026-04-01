@@ -50,6 +50,8 @@ export interface NorenProStatus {
   tokens_used: number | null;
   tokens_limit: number | null;
   requests_this_month: number | null;
+  generations_used: number | null;
+  generations_limit: number | null;
 }
 
 export interface SubscriptionStatus {
@@ -61,6 +63,7 @@ export interface SubscriptionStatus {
   can_sync: boolean;
   can_export: boolean;
   tokens_limit: number;
+  generations_limit: number;
   is_trial: boolean;
   trial_expires_at: string | null;
   current_period_end: string | null;
@@ -1396,6 +1399,8 @@ export async function getNorenProUsage(): Promise<NorenProStatus> {
     tokens_used: number;
     tokens_limit: number;
     requests_this_month: number;
+    generations_used: number;
+    generations_limit: number;
   }>("/generate/usage");
   return {
     logged_in: true,
@@ -1404,6 +1409,8 @@ export async function getNorenProUsage(): Promise<NorenProStatus> {
     tokens_used: data.tokens_used,
     tokens_limit: data.tokens_limit,
     requests_this_month: data.requests_this_month,
+    generations_used: data.generations_used ?? 0,
+    generations_limit: data.generations_limit ?? 0,
   };
 }
 
@@ -1422,6 +1429,7 @@ export async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
       can_sync: boolean;
       can_export: boolean;
       tokens_limit: number;
+      generations_limit: number;
       is_trial: boolean;
       trial_expires_at: string | null;
     };
@@ -1435,6 +1443,7 @@ export async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
     can_sync: data.entitlements?.can_sync ?? false,
     can_export: data.entitlements?.can_export ?? false,
     tokens_limit: data.entitlements?.tokens_limit ?? 0,
+    generations_limit: data.entitlements?.generations_limit ?? 0,
     is_trial: data.entitlements?.is_trial ?? false,
     trial_expires_at: data.entitlements?.trial_expires_at ?? null,
     current_period_end: data.current_period_end,
