@@ -319,8 +319,25 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
         // textarea/input: stream chunks directly, cursor tracked
         appendToField(targetEl, event.text);
       } else if (isContentEditable && targetEl) {
-        // contenteditable: stream chunks for typing appearance (newlines lost, fixed on done)
-        document.execCommand("insertText", false, event.text);
+        // contenteditable: stream chunks with paragraph breaks preserved.
+        // execCommand("insertText") swallows \n in per-chunk calls,
+        // so we split on newlines and use insertParagraph for double breaks.
+        targetEl.focus();
+        const chunk = event.text;
+        if (!chunk.includes("\n")) {
+          document.execCommand("insertText", false, chunk);
+        } else {
+          const segments = chunk.split(/(\n{2,}|\n)/);
+          for (const seg of segments) {
+            if (seg === "\n\n" || seg.match(/^\n{2,}$/)) {
+              document.execCommand("insertParagraph");
+            } else if (seg === "\n") {
+              document.execCommand("insertLineBreak");
+            } else if (seg) {
+              document.execCommand("insertText", false, seg);
+            }
+          }
+        }
       }
     } else if (event.type === "done") {
       finalContent = event.content || streamedText;
