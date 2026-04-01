@@ -261,7 +261,6 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
   }
 
   const targetEl = getEditableTarget();
-  const frameworkEditor = targetEl ? isFrameworkEditor(targetEl) : false;
   const streamIntoField = !!targetEl;
 
   // Destroy old toolbar, create loading one
@@ -288,7 +287,6 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
       targetEl.value = targetEl.value.slice(0, start) + targetEl.value.slice(end);
       targetEl.selectionStart = targetEl.selectionEnd = start;
     } else if (targetEl.getAttribute("contenteditable") === "true") {
-      // Delete selected content, cursor stays at deletion point
       const selection = window.getSelection();
       if (selection && selection.rangeCount > 0) {
         selection.getRangeAt(0).deleteContents();
@@ -312,27 +310,21 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
   port.onMessage.addListener((event) => {
     if (event.type === "delta") {
       streamedText += event.text;
-      // Standard editors: stream text in as it arrives
-      if (streamIntoField && !frameworkEditor && targetEl) {
+      if (streamIntoField && targetEl) {
         appendToField(targetEl, event.text);
       }
-      // Framework editors: buffer chunks, paste once on done
     } else if (event.type === "done") {
       finalContent = event.content || streamedText;
       port.disconnect();
       dismissToolbar();
 
-      if (streamIntoField && frameworkEditor && targetEl) {
-        // Single synthetic paste for framework editors (Draft.js, Lexical)
-        appendToField(targetEl, finalContent, true);
-      } else if (streamIntoField) {
-        // Standard editors: text already streamed in
+      if (streamIntoField) {
+        // Text already streamed in
       } else {
-        // No target at start. Check again now (user may have clicked into a field while waiting)
+        // No target at start. Check again (user may have clicked into a field while waiting)
         const lateTarget = getEditableTarget();
         if (lateTarget) {
-          const usePaste = isFrameworkEditor(lateTarget);
-          appendToField(lateTarget, finalContent, usePaste);
+          appendToField(lateTarget, finalContent);
         } else {
           navigator.clipboard.writeText(finalContent).then(() => {
             showCopiedNotification();
@@ -381,7 +373,7 @@ function getEditableTarget(): HTMLElement | null {
   return lastFocusedEditable;
 }
 
-function appendToField(el: HTMLElement, text: string, useClipboardEvent = false) {
+function appendToField(el: HTMLElement, text: string) {
   if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
     const pos = el.selectionStart ?? el.value.length;
     el.value = el.value.slice(0, pos) + text + el.value.slice(pos);
@@ -389,18 +381,7 @@ function appendToField(el: HTMLElement, text: string, useClipboardEvent = false)
     el.dispatchEvent(new Event("input", { bubbles: true }));
   } else if (el.getAttribute("contenteditable") === "true") {
     el.focus();
-    if (useClipboardEvent) {
-      // Synthetic paste for framework editors (Draft.js, Lexical, etc.)
-      const dt = new DataTransfer();
-      dt.setData("text/plain", text);
-      el.dispatchEvent(new ClipboardEvent("paste", {
-        clipboardData: dt,
-        bubbles: true,
-        cancelable: true,
-      }));
-    } else {
-      document.execCommand("insertText", false, text);
-    }
+    document.execCommand("insertText", false, text);
   }
 }
 
