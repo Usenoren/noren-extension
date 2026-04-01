@@ -78,13 +78,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 // Quick action prompt templates
 // rewrite/reply: voice profile injected via system prompt in byokGenerate
 // fix: no voice profile (purely mechanical)
-const REPLY_LENGTH_HINTS: Record<string, string> = {
-  reddit: "Reddit reply: 2-4 sentences typical.",
-  tweet: "Tweet reply: 1-2 sentences, under 280 characters.",
-  linkedin: "LinkedIn comment: 2-4 sentences typical.",
-  slack: "Slack message: 1-3 sentences typical.",
-  email: "Email reply: match the length of the email you're replying to.",
-};
+// No per-platform length map. The reply prompt handles length naturally.
 
 const QUICK_ACTION_PROMPTS: Record<string, (text: string, ctx?: string | null, intent?: string | null, format?: string | null) => string> = {
   rewrite: (text, ctx) => {
@@ -93,9 +87,7 @@ const QUICK_ACTION_PROMPTS: Record<string, (text: string, ctx?: string | null, i
     return `${prompt}\n\n${text}`;
   },
   reply: (text, ctx, intent, format) => {
-    let prompt = `Engage with this post in my voice. Follow the voice profile closely: use its word preferences, sentence patterns, and rhetorical moves. Return only the reply.`;
-    const lengthHint = format && REPLY_LENGTH_HINTS[format];
-    if (lengthHint) prompt += ` ${lengthHint}`;
+    let prompt = `Engage with this post in my voice. Follow the voice profile closely: use its word preferences, sentence patterns, and rhetorical moves. Your reply should be shorter than the post you're replying to. Return only the reply.`;
     if (intent) prompt += `\n\nDirection (use as the angle, do not repeat verbatim): ${intent}`;
     if (ctx) prompt += `\n\nSurrounding context:\n${ctx}`;
     return `${prompt}\n\nPost to engage with:\n${text}`;
