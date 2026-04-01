@@ -252,7 +252,8 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
 
   // Determine if we're in an editable field (stream into it) or read-only (copy at end)
   const targetEl = getEditableTarget();
-  const streamIntoField = !!targetEl;
+  const blockedEditor = hasBlockedEditor();
+  const streamIntoField = !!targetEl && !blockedEditor;
 
   // Destroy old toolbar, create loading one
   if (toolbarMount) {
@@ -345,6 +346,18 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
   });
 
   port.postMessage({ action, text, detectedFormat, surroundingContext, intent });
+}
+
+function hasBlockedEditor(): boolean {
+  // Platforms with custom editors that block programmatic text insertion
+  const host = location.hostname;
+  if (host === "twitter.com" || host === "x.com" || host.endsWith(".x.com")) return true;
+  if (host.endsWith(".linkedin.com") || host === "linkedin.com") return true;
+  // Check for Draft.js editors (used by Twitter, Facebook, etc.)
+  const active = document.activeElement;
+  if (active?.closest("[data-testid='tweetTextarea_0']")) return true;
+  if (active?.closest(".DraftEditor-root")) return true;
+  return false;
 }
 
 function getEditableTarget(): HTMLElement | null {
