@@ -61,6 +61,8 @@ export interface SubscriptionStatus {
   can_sync: boolean;
   can_export: boolean;
   tokens_limit: number;
+  is_trial: boolean;
+  trial_expires_at: string | null;
   current_period_end: string | null;
   cancel_at_period_end: boolean;
   one_time_purchases: string[];
@@ -802,7 +804,7 @@ export async function generate(params: {
 }): Promise<GenerateResult> {
   const settings = await getSettings();
 
-  if (settings.inference_mode === "noren_pro" && settings.noren_pro_logged_in) {
+  if (settings.noren_pro_logged_in) {
     const resp = await apiJson<{ content: string; input_tokens: number; output_tokens: number }>("/generate/", {
       method: "POST",
       body: JSON.stringify({
@@ -838,7 +840,7 @@ export async function* generateStream(params: {
   const settings = await getSettings();
 
   // BYOK: stream via provider APIs
-  if (settings.inference_mode !== "noren_pro" || !settings.noren_pro_logged_in) {
+  if (!settings.noren_pro_logged_in) {
     yield* byokGenerateStream(params);
     return;
   }
@@ -944,7 +946,7 @@ export async function repurpose(params: {
 }): Promise<RepurposeResult> {
   const settings = await getSettings();
 
-  if (settings.inference_mode === "noren_pro" && settings.noren_pro_logged_in) {
+  if (settings.noren_pro_logged_in) {
     const resp = await apiJson<{
       results: RepurposeFormatResult[];
       total_input_tokens: number;
@@ -1064,7 +1066,7 @@ export async function chatSend(params: {
 }): Promise<GenerateResult> {
   const settings = await getSettings();
 
-  if (settings.inference_mode === "noren_pro" && settings.noren_pro_logged_in) {
+  if (settings.noren_pro_logged_in) {
     const resp = await apiJson<{ content: string; input_tokens: number; output_tokens: number }>("/generate/", {
       method: "POST",
       body: JSON.stringify({
@@ -1122,7 +1124,7 @@ export async function deleteChat(id: string): Promise<void> {
   // Fire-and-forget: propagate delete to server for Pro users
   try {
     const settings = await getSettings();
-    if (settings.inference_mode === "noren_pro" && settings.noren_pro_logged_in) {
+    if (settings.noren_pro_logged_in) {
       apiFetch(`/sync/chats/${id}`, { method: "DELETE" }).catch(() => {});
     }
   } catch { /* ignore */ }
@@ -1134,7 +1136,7 @@ export async function deleteChat(id: string): Promise<void> {
 
 export async function syncChatsFromServer(): Promise<number> {
   const settings = await getSettings();
-  if (settings.inference_mode !== "noren_pro" || !settings.noren_pro_logged_in) return 0;
+  if (!settings.noren_pro_logged_in) return 0;
 
   try {
     // Get manifest of all server chats
@@ -1189,7 +1191,7 @@ export async function syncChatsFromServer(): Promise<number> {
 export async function getProfileOverview(): Promise<ProfileOverview> {
   const settings = await getSettings();
 
-  if (settings.inference_mode === "noren_pro" && settings.noren_pro_logged_in) {
+  if (settings.noren_pro_logged_in) {
     try {
       const meta = await apiJson<{ has_profile: boolean; formats: string[] }>(
         "/profile/voice/metadata"
@@ -1232,7 +1234,7 @@ export async function saveLocalProfile(profile: ProfileContent): Promise<void> {
 export async function readProfileContent(): Promise<ProfileContent> {
   const settings = await getSettings();
 
-  if (settings.inference_mode === "noren_pro" && settings.noren_pro_logged_in) {
+  if (settings.noren_pro_logged_in) {
     try {
       return await apiJson<ProfileContent>("/profile/voice/export", { method: "POST" });
     } catch {
@@ -1254,7 +1256,7 @@ export async function saveProfileEdit(params: {
 }): Promise<void> {
   const settings = await getSettings();
 
-  if (settings.inference_mode === "noren_pro" && settings.noren_pro_logged_in) {
+  if (settings.noren_pro_logged_in) {
     // Fetch current profile, apply edits, re-upload via PUT
     const current = await apiJson<ProfileContent>("/profile/voice/export", { method: "POST" });
     const updatedIdentity = params.coreIdentity;
@@ -1285,7 +1287,7 @@ export async function saveProfileEdit(params: {
 export async function getVoiceProfileText(format?: string): Promise<string | null> {
   const settings = await getSettings();
 
-  if (settings.inference_mode === "noren_pro" && settings.noren_pro_logged_in) {
+  if (settings.noren_pro_logged_in) {
     return null;
   }
 
@@ -1302,7 +1304,7 @@ export async function getVoiceProfileText(format?: string): Promise<string | nul
 /** Get a compressed voice profile (~1.2K tokens) for fast model quick actions */
 export async function getCompressedProfile(format?: string): Promise<string | null> {
   const settings = await getSettings();
-  if (settings.inference_mode === "noren_pro" && settings.noren_pro_logged_in) {
+  if (settings.noren_pro_logged_in) {
     return null; // server handles compression for Pro users
   }
 
@@ -1406,7 +1408,39 @@ export async function getNorenProUsage(): Promise<NorenProStatus> {
 }
 
 export async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
-  return apiJson<SubscriptionStatus>("/billing/status");
+  // Server returns entitlements as a nested object; flatten to match our interface
+  const data = await apiJson<{
+    tier: string;
+    active: boolean;
+    one_time_purchases: string[];
+    current_period_end: string | null;
+    cancel_at_period_end: boolean;
+    entitlements: {
+      can_extract: boolean;
+      can_generate_bundled: boolean;
+      can_living_profile: boolean;
+      can_sync: boolean;
+      can_export: boolean;
+      tokens_limit: number;
+      is_trial: boolean;
+      trial_expires_at: string | null;
+    };
+  }>("/billing/status");
+  return {
+    tier: data.tier as SubscriptionStatus["tier"],
+    active: data.active,
+    can_extract: data.entitlements?.can_extract ?? false,
+    can_generate_bundled: data.entitlements?.can_generate_bundled ?? false,
+    can_living_profile: data.entitlements?.can_living_profile ?? false,
+    can_sync: data.entitlements?.can_sync ?? false,
+    can_export: data.entitlements?.can_export ?? false,
+    tokens_limit: data.entitlements?.tokens_limit ?? 0,
+    is_trial: data.entitlements?.is_trial ?? false,
+    trial_expires_at: data.entitlements?.trial_expires_at ?? null,
+    current_period_end: data.current_period_end,
+    cancel_at_period_end: data.cancel_at_period_end,
+    one_time_purchases: data.one_time_purchases ?? [],
+  };
 }
 
 export async function createCheckout(tier: string): Promise<CheckoutResult> {
