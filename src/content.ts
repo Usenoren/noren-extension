@@ -367,7 +367,25 @@ function appendToField(el: HTMLElement, text: string) {
     el.dispatchEvent(new Event("input", { bubbles: true }));
   } else if (el.getAttribute("contenteditable") === "true") {
     el.focus();
-    document.execCommand("insertText", false, text);
+    // Try execCommand first (works on standard contenteditable)
+    const ok = document.execCommand("insertText", false, text);
+    if (!ok) {
+      // Fallback: simulate InputEvent for React-based editors (Twitter, LinkedIn, Slack)
+      const inputEvent = new InputEvent("beforeinput", {
+        inputType: "insertText",
+        data: text,
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+      });
+      el.dispatchEvent(inputEvent);
+      el.dispatchEvent(new InputEvent("input", {
+        inputType: "insertText",
+        data: text,
+        bubbles: true,
+        composed: true,
+      }));
+    }
   }
 }
 
