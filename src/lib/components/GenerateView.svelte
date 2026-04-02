@@ -30,6 +30,7 @@
   let comparison = $state<ComparisonResult | null>(null);
   let compareMode = $state(false);
   let savedPrompt = $state("");
+  let savedContext = $state("");  // preserved for inject-replace after contextText is cleared
   let error = $state("");
   let attachedFiles = $state<{ name: string; content: string }[]>([]);
   let hasProfile = $state(true);
@@ -137,6 +138,7 @@
     error = "";
     output = null;
     savedPrompt = prompt.trim();
+    savedContext = contextText;
     prompt = "";
     oncontextused?.();
     comparison = null;
@@ -290,7 +292,9 @@
       if (editedText && editedText !== output.text) {
         logEdit(format, output.text, editedText).catch(() => {});
       }
-      await injectGeneratedText(text);
+      // If we had context text (user highlighted text before generating),
+      // tell the content script to replace the original selection
+      await injectGeneratedText(text, !!savedContext);
     } catch (e) {
       error = friendlyError(e);
     }
@@ -346,6 +350,7 @@
     comparison = null;
     editedText = "";
     savedPrompt = "";
+    savedContext = "";
     streamedText = "";
     cleanedText = "";
     fixSpans = [];

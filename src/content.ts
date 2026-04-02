@@ -18,7 +18,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message.type === "inject-text") {
     const text = message.text as string;
-    injectText(text);
+    const replaceOriginal = message.replaceOriginal as boolean | undefined;
+    if (replaceOriginal && savedEditableSelection) {
+      injectReplace(text, savedEditableSelection);
+      savedEditableSelection = null;
+    } else {
+      injectText(text);
+    }
     sendResponse({ success: true });
     return;
   }
@@ -33,6 +39,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 let lastFocusedEditable: HTMLElement | null = null;
 
+// Saved editable selection: captured on mouseup so it survives the
+// focus shift to the sidepanel. Used by inject-replace (Weave panel)
+// and contenteditable rewrite (quick actions).
+let savedEditableSelection: {
+  el: HTMLElement;
+  start: number;
+  end: number;
+  text: string;
+} | null = null;
+
 document.addEventListener("focusin", (e) => {
   const el = e.target as HTMLElement;
   if (
@@ -43,6 +59,131 @@ document.addEventListener("focusin", (e) => {
     lastFocusedEditable = el;
   }
 }, true);
+
+// Capture selection range while focus is still on the editable field
+// (before sidepanel or toolbar steals it). Covers mouse drag, Cmd+A,
+// Shift+arrow, and any other selection method.
+function captureEditableSelection() {
+  const el = document.activeElement as HTMLElement;
+  if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    if (start !== end) {
+      savedEditableSelection = { el, start, end, text: el.value.slice(start, end) };
+    }
+  } else if (el?.getAttribute("contenteditable") === "true") {
+    const sel = window.getSelection();
+    const text = sel?.toString().trim();
+    if (text) {
+      savedEditableSelection = { el, start: 0, end: 0, text };
+    }
+  }
+}
+
+document.addEventListener("mouseup", captureEditableSelection, true);
+document.addEventListener("keyup", (e) => {
+  if (e.shiftKey || e.metaKey || e.ctrlKey) captureEditableSelection();
+}, true);
+
+function injectReplace(text: string, sel: { el: HTMLElement; start: number; end: number; text: string }) {
+  const el = sel.el;
+  if (!el || !el.isConnected) {
+    // Element gone (page navigated, field removed). Fall back to regular inject.
+    injectText(text);
+    return;
+  }
+
+  if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
+    el.focus();
+    // Verify saved positions still match (user may have edited the field)
+    const currentSlice = el.value.slice(sel.start, sel.end);
+    if (currentSlice === sel.text) {
+      el.selectionStart = sel.start;
+      el.selectionEnd = sel.end;
+      el.value = el.value.slice(0, sel.start) + text + el.value.slice(sel.end);
+      el.selectionStart = el.selectionEnd = sel.start + text.length;
+    } else {
+      // Positions stale, fall back to find-and-replace
+      const idx = el.value.indexOf(sel.text);
+      if (idx !== -1) {
+        el.value = el.value.slice(0, idx) + text + el.value.slice(idx + sel.text.length);
+        el.selectionStart = el.selectionEnd = idx + text.length;
+      } else {
+        // Can't find original text, insert at cursor
+        const pos = el.selectionStart ?? el.value.length;
+        el.value = el.value.slice(0, pos) + text + el.value.slice(pos);
+        el.selectionStart = el.selectionEnd = pos + text.length;
+      }
+    }
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  } else if (el.getAttribute("contenteditable") === "true") {
+    el.focus();
+    // For contenteditable: find the original text and select it, then replace
+    const found = findAndSelectText(el, sel.text);
+    if (found) {
+      if (isFrameworkEditor(el)) {
+        const dt = new DataTransfer();
+        dt.setData("text/plain", text);
+        el.dispatchEvent(new ClipboardEvent("paste", {
+          clipboardData: dt,
+          bubbles: true,
+          cancelable: true,
+        }));
+      } else {
+        document.execCommand("insertText", false, text);
+      }
+    } else {
+      // Fallback: just insert
+      document.execCommand("insertText", false, text);
+    }
+  }
+}
+
+function findAndSelectText(root: HTMLElement, searchText: string): boolean {
+  // Walk text nodes to find and select the original text
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let accumulated = "";
+  const nodes: { node: Text; start: number }[] = [];
+
+  while (walker.nextNode()) {
+    const node = walker.currentNode as Text;
+    nodes.push({ node, start: accumulated.length });
+    accumulated += node.textContent || "";
+  }
+
+  const idx = accumulated.indexOf(searchText);
+  if (idx === -1) return false;
+
+  const endIdx = idx + searchText.length;
+  let startNode: Text | null = null;
+  let startOffset = 0;
+  let endNode: Text | null = null;
+  let endOffset = 0;
+
+  for (const { node, start } of nodes) {
+    const nodeEnd = start + (node.textContent?.length || 0);
+    if (!startNode && idx >= start && idx < nodeEnd) {
+      startNode = node;
+      startOffset = idx - start;
+    }
+    if (endIdx > start && endIdx <= nodeEnd) {
+      endNode = node;
+      endOffset = endIdx - start;
+      break;
+    }
+  }
+
+  if (!startNode || !endNode) return false;
+
+  const range = document.createRange();
+  range.setStart(startNode, startOffset);
+  range.setEnd(endNode, endOffset);
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  return true;
+}
 
 function injectText(text: string) {
   // Prefer the currently active element if it's editable,
@@ -297,6 +438,14 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
       targetEl.value = targetEl.value.slice(0, start) + targetEl.value.slice(end);
       targetEl.selectionStart = targetEl.selectionEnd = start;
     } else if (targetEl.getAttribute("contenteditable") === "true") {
+      // Restore selection from saved state if the browser lost it
+      // (e.g. clicking the toolbar button shifted focus away)
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed) {
+        if (savedEditableSelection && savedEditableSelection.el === targetEl && savedEditableSelection.text) {
+          findAndSelectText(targetEl, savedEditableSelection.text);
+        }
+      }
       document.execCommand("delete");
     }
   }
