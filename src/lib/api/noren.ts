@@ -69,6 +69,8 @@ export interface SubscriptionStatus {
   current_period_end: string | null;
   cancel_at_period_end: boolean;
   one_time_purchases: string[];
+  export_unlock_remaining_cents: number | null;
+  export_unlock_progress: number | null;
 }
 
 export interface CheckoutResult {
@@ -1422,6 +1424,8 @@ export async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
     one_time_purchases: string[];
     current_period_end: string | null;
     cancel_at_period_end: boolean;
+    export_unlock_remaining_cents: number | null;
+    export_unlock_progress: number | null;
     entitlements: {
       can_extract: boolean;
       can_generate_bundled: boolean;
@@ -1449,6 +1453,8 @@ export async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
     current_period_end: data.current_period_end,
     cancel_at_period_end: data.cancel_at_period_end,
     one_time_purchases: data.one_time_purchases ?? [],
+    export_unlock_remaining_cents: data.export_unlock_remaining_cents ?? null,
+    export_unlock_progress: data.export_unlock_progress ?? null,
   };
 }
 
