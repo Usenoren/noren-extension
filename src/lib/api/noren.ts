@@ -83,10 +83,42 @@ export interface ComparisonResult {
   without_voice: GenerateResult;
 }
 
+export interface VoiceOverview {
+  summary: string | null;
+  routing: {
+    structure_predictability: "high" | "medium" | "low";
+    register_break_frequency: number;
+    casual_marker_density: "high" | "medium" | "low";
+    signature_phrase_rigidity: "high" | "medium" | "low";
+  } | null;
+  counts: {
+    analogy_domains: number;
+    micro_constructions: number;
+    signature_phrases: number;
+    anti_patterns: number;
+    profile_lines: number;
+  } | null;
+  corpus: {
+    unique_sample_count: number;
+    formats: string[];
+  } | null;
+  baseline_rhythm: {
+    totalSentences: number;
+    medianWordCount: number;
+    meanWordCount: number;
+    distributionPct: { short: number; medium: number; long: number; veryLong: number };
+    longToShortRatio: number;
+    medianCommasPerSentence: number;
+    sentenceCeiling: number;
+  } | null;
+  format_rhythms: Record<string, VoiceOverview["baseline_rhythm"]> | null;
+}
+
 export interface ProfileOverview {
   exists: boolean;
   formats: string[];
   is_server?: boolean;
+  voice_overview?: VoiceOverview | null;
 }
 
 export interface ProfileContent {
@@ -145,6 +177,7 @@ export interface ProfileMetadata {
   extraction_count: number;
   next_refresh_available: string | null;
   can_rollback: boolean;
+  voice_overview?: VoiceOverview | null;
 }
 
 export interface RefreshHistoryEntry {
@@ -1198,10 +1231,17 @@ export async function getProfileOverview(): Promise<ProfileOverview> {
 
   if (settings.noren_pro_logged_in) {
     try {
-      const meta = await apiJson<{ has_profile: boolean; formats: string[] }>(
-        "/profile/voice/metadata"
-      );
-      return { exists: meta.has_profile, formats: meta.formats, is_server: true };
+      const meta = await apiJson<{
+        has_profile: boolean;
+        formats: string[];
+        voice_overview?: VoiceOverview | null;
+      }>("/profile/voice/metadata");
+      return {
+        exists: meta.has_profile,
+        formats: meta.formats,
+        is_server: true,
+        voice_overview: meta.voice_overview ?? null,
+      };
     } catch {
       return { exists: false, formats: [] };
     }
@@ -1552,11 +1592,11 @@ export async function getContextText(): Promise<string | null> {
 // Inject text — via content script
 // ============================================================
 
-export async function injectGeneratedText(text: string): Promise<void> {
+export async function injectGeneratedText(text: string, replaceOriginal?: boolean): Promise<void> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) throw new Error("No active tab");
 
-  await chrome.tabs.sendMessage(tab.id, { type: "inject-text", text });
+  await chrome.tabs.sendMessage(tab.id, { type: "inject-text", text, replaceOriginal: !!replaceOriginal });
 }
 
 // ============================================================
