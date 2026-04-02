@@ -605,6 +605,13 @@
                 <div class="sv-usage-meta">
                   Chat and autocomplete don't count toward your limit.
                 </div>
+                {#if proStatus.generations_used / (proStatus.generations_limit || 1) >= 0.8}
+                  <div class="sv-usage-warning">
+                    {proStatus.generations_used >= proStatus.generations_limit
+                      ? "Generation limit reached. Resets next month."
+                      : `${proStatus.generations_limit - proStatus.generations_used} generations remaining this month.`}
+                  </div>
+                {/if}
               </div>
             </div>
           {/if}
@@ -1125,6 +1132,10 @@
     transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
   }
   .sv-usage-meta { font-size: 10px; color: var(--color-muted); }
+  .sv-usage-warning {
+    font-size: 10px; color: var(--color-warning); font-weight: 500;
+    margin-top: 2px;
+  }
 
   /* ── Palette strip ── */
   .sv-palette-strip {
