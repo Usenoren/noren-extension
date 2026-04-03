@@ -682,7 +682,7 @@ async function showRewriteHint() {
       animation: noren-hint 5s ease-out forwards;
       pointer-events: none;
     `;
-    el.textContent = "Tip: add instructions before your text, like \"expand this\" or \"tighten\"";
+    el.textContent = "Tip: add instructions after your text, like \"expand this\" or \"tighten\"";
 
     const style = document.createElement("style");
     style.textContent = `
