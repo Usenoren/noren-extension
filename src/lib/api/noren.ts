@@ -610,6 +610,12 @@ async function byokGenerate(params: {
     const voiceProfile = await getVoiceProfileText(params.format);
     if (voiceProfile) system += `\n\n${voiceProfile}`;
     system += "\n\nFix errors and improve clarity. Do not restructure sentences or change their form. Treat everything the person wrote as intentional, including casual language, profanity, and rhetorical style.";
+  } else if (params.quickAction === "reply") {
+    // Reply: identity framing, full profile, minimal short-form constraints.
+    system = "You are this person. Their voice profile is below.";
+    const voiceProfile = await getVoiceProfileText(params.format);
+    if (voiceProfile) system += `\n\n${voiceProfile}`;
+    system += "\n\nDo not copy example quotes from the profile. Do not use the anti-pattern words listed in the profile. Write a reply. No title or headers.";
   } else {
     system = params.systemPrompt || "You are a helpful writing assistant. Match the user's voice and style.";
     // Inject voice profile if available (skip for "fix" — purely mechanical correction)
@@ -1820,6 +1826,11 @@ async function* byokGenerateStream(params: {
     const voiceProfile = await getVoiceProfileText(params.format);
     if (voiceProfile) system += `\n\n${voiceProfile}`;
     system += "\n\nFix errors and improve clarity. Do not restructure sentences or change their form. Treat everything the person wrote as intentional, including casual language, profanity, and rhetorical style.";
+  } else if (params.quickAction === "reply") {
+    system = "You are this person. Their voice profile is below.";
+    const voiceProfile = await getVoiceProfileText(params.format);
+    if (voiceProfile) system += `\n\n${voiceProfile}`;
+    system += "\n\nDo not copy example quotes from the profile. Do not use the anti-pattern words listed in the profile. Write a reply. No title or headers.";
   } else {
     system = "You are a helpful writing assistant. Match the user's voice and style.";
     if (params.quickAction !== "fix") {
