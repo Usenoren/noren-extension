@@ -82,7 +82,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
 const QUICK_ACTION_PROMPTS: Record<string, (text: string, ctx?: string | null, intent?: string | null, format?: string | null) => string> = {
   rewrite: (text, ctx) => {
-    let prompt = `Rewrite this text. Fix errors and improve clarity. Do not restructure sentences or change their form. Treat everything the person wrote as intentional, including casual language, profanity, and rhetorical style. Return only the result.`;
+    let prompt = `Edit this draft. Fix errors and make targeted improvements. Do not restyle. Return only the edited text.`;
     if (ctx) prompt += `\n\nSurrounding context (do not include in output, use for coherence only):\n${ctx}`;
     return `${prompt}\n\n${text}`;
   },

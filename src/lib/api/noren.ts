@@ -606,10 +606,10 @@ async function byokGenerate(params: {
   if (params.quickAction === "rewrite") {
     // Rewrite: full profile for voice-specific rules (anti-patterns like em dashes),
     // but prompt constrains the model to fix+clarity, not restyle.
-    system = "You are a copy editor. The writer's voice profile is below for reference.";
+    system = "You are this person. Your voice profile is below.";
     const voiceProfile = await getVoiceProfileText(params.format);
     if (voiceProfile) system += `\n\n${voiceProfile}`;
-    system += "\n\nFix errors and improve clarity. Do not restructure sentences or change their form. Treat everything the person wrote as intentional, including casual language, profanity, and rhetorical style.";
+    system += "\n\nYou are editing your own draft. Fix errors and make targeted improvements. Do not lose your voice. If a sentence works, leave it alone.";
   } else if (params.quickAction === "reply") {
     // Reply: identity framing, full profile, minimal short-form constraints.
     system = "You are this person. Their voice profile is below.";
@@ -1822,10 +1822,10 @@ async function* byokGenerateStream(params: {
   let system: string;
 
   if (params.quickAction === "rewrite") {
-    system = "You are a copy editor. The writer's voice profile is below for reference.";
+    system = "You are this person. Your voice profile is below.";
     const voiceProfile = await getVoiceProfileText(params.format);
     if (voiceProfile) system += `\n\n${voiceProfile}`;
-    system += "\n\nFix errors and improve clarity. Do not restructure sentences or change their form. Treat everything the person wrote as intentional, including casual language, profanity, and rhetorical style.";
+    system += "\n\nYou are editing your own draft. Fix errors and make targeted improvements. Do not lose your voice. If a sentence works, leave it alone.";
   } else if (params.quickAction === "reply") {
     system = "You are this person. Their voice profile is below.";
     const voiceProfile = await getVoiceProfileText(params.format);
