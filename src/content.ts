@@ -494,6 +494,7 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
       finalContent = event.content || streamedText;
       port.disconnect();
       dismissToolbar();
+      if (action === "rewrite") showRewriteHint();
 
       if (isContentEditable && targetEl) {
         if (isFramework) {
@@ -653,6 +654,53 @@ function showErrorNotification(error: string) {
     el.remove();
     style.remove();
   }, 3100);
+}
+
+async function showRewriteHint() {
+  const data = await chrome.storage.local.get("rewrite_hint_count");
+  const count = data.rewrite_hint_count || 0;
+  if (count >= 3) return;
+  await chrome.storage.local.set({ rewrite_hint_count: count + 1 });
+
+  // Small delay so it doesn't compete with the streaming finish
+  setTimeout(() => {
+    const el = document.createElement("noren-notification");
+    el.style.cssText = `
+      all: initial;
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 2147483647;
+      padding: 8px 14px;
+      background: #2A2A2A;
+      color: #9A9A9A;
+      font-family: -apple-system, system-ui, sans-serif;
+      font-size: 12px;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+      animation: noren-hint 5s ease-out forwards;
+      pointer-events: none;
+    `;
+    el.textContent = "Tip: add instructions before your text, like \"expand this\" or \"tighten\"";
+
+    const style = document.createElement("style");
+    style.textContent = `
+      @keyframes noren-hint {
+        0% { opacity: 0; transform: translateX(-50%) translateY(8px); }
+        8% { opacity: 1; transform: translateX(-50%) translateY(0); }
+        80% { opacity: 1; }
+        100% { opacity: 0; }
+      }
+    `;
+    document.head.appendChild(style);
+    document.body.appendChild(el);
+
+    setTimeout(() => {
+      el.remove();
+      style.remove();
+    }, 5100);
+  }, 800);
 }
 
 function showCopiedNotification() {
