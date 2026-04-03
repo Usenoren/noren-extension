@@ -286,14 +286,16 @@ chrome.storage.onChanged.addListener((changes) => {
   }
 });
 
-// Use capture phase so page scripts can't swallow the event with stopPropagation
-document.addEventListener("mouseup", (e) => {
+// Listen on window (not document) in capture phase. This fires before any
+// document-level capture listeners that sites like Reddit may register with
+// stopImmediatePropagation, which would block later document listeners.
+window.addEventListener("mouseup", (e) => {
   // Ignore clicks on our own toolbar
   if (toolbarMount && e.composedPath().includes(toolbarMount.host)) return;
   // Don't interfere while a quick action is running
   if (processingAction) return;
 
-  // Small delay for selection to finalize
+  // Small delay for selection to finalize (some SPAs update DOM async after mouseup)
   setTimeout(() => {
     if (processingAction) return;
 
@@ -320,7 +322,7 @@ document.addEventListener("mouseup", (e) => {
   }, 10);
 }, true);
 
-document.addEventListener("mousedown", (e) => {
+window.addEventListener("mousedown", (e) => {
   if (!toolbarMount) return;
   if (processingAction) return;
   const path = e.composedPath();
@@ -329,7 +331,7 @@ document.addEventListener("mousedown", (e) => {
   }
 }, true);
 
-document.addEventListener("keydown", (e) => {
+window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") dismissToolbar();
 }, true);
 
