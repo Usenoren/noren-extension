@@ -51,7 +51,16 @@
   let isSyncing = $state(false);
   let isExporting = $state(false);
   let refreshMessage = $state("");
-  let showHistory = $state(false);
+  let latestObservations = $state<string[]>([]);
+  let showRollbackConfirm = $state(false);
+  let expandedEntryId = $state<string | null>(null);
+  let expandedDiffSection = $state<string | null>(null);
+
+  // Sample submission
+  let showSampleInput = $state(false);
+  let sampleText = $state("");
+  let sampleFormat = $state("general");
+  let isSubmittingSample = $state(false);
 
   // Guided editing
   let guidedInstruction = $state("");
@@ -204,11 +213,14 @@
     isRefreshing = true;
     error = "";
     refreshMessage = "";
+    latestObservations = [];
     try {
       await uploadEditLog();
       const result = await refreshLivingProfile();
       refreshMessage = `${result.message} (${result.sections_updated} section${result.sections_updated !== 1 ? "s" : ""} updated)`;
+      latestObservations = result.observations || [];
       editCount = 0;
+      refreshHistory = await getRefreshHistory(10).catch(() => []);
       await loadProfile();
     } catch (e) {
       error = friendlyError(e);
@@ -222,11 +234,43 @@
     error = "";
     try {
       await rollbackProfile();
+      showRollbackConfirm = false;
+      refreshHistory = await getRefreshHistory(10).catch(() => []);
       await loadProfile();
     } catch (e) {
       error = friendlyError(e);
     } finally {
       isRollingBack = false;
+    }
+  }
+
+  function toggleEntry(id: string) {
+    expandedEntryId = expandedEntryId === id ? null : id;
+    expandedDiffSection = null;
+  }
+
+  function toggleDiffSection(section: string) {
+    expandedDiffSection = expandedDiffSection === section ? null : section;
+  }
+
+  function formatSectionName(s: string): string {
+    return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  async function handleSubmitSample() {
+    if (!sampleText.trim() || isSubmittingSample) return;
+    isSubmittingSample = true;
+    error = "";
+    try {
+      await uploadEditLog([{ text: sampleText.trim(), format: sampleFormat, added_at: new Date().toISOString() }]);
+      sampleText = "";
+      showSampleInput = false;
+      // Reload metadata to update signal counts
+      metadata = await getProfileMetadata().catch(() => null);
+    } catch (e) {
+      error = friendlyError(e);
+    } finally {
+      isSubmittingSample = false;
     }
   }
 
@@ -591,77 +635,219 @@
             {/if}
           </div>
 
+          <!-- Upload & Refresh -->
+          <button
+            onclick={handleUploadAndRefresh}
+            disabled={isRefreshing || isRefreshDisabled()}
+            class="w-full py-1.5 text-[10px] font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed rounded
+              {isRefreshing || isRefreshDisabled()
+                ? 'bg-surface text-muted border border-border'
+                : 'bg-secondary text-white hover:bg-secondary/90'}"
+          >
+            {#if isRefreshing}
+              <span class="inline-flex items-center gap-1"><LoadingSpinner /> Analyzing patterns...</span>
+            {:else if isRefreshDisabled()}
+              Available in {refreshCountdown()}
+            {:else}
+              Refresh profile{#if editCount > 0}
+                <span class="ml-1 opacity-70">({editCount} edit{editCount !== 1 ? "s" : ""})</span>
+              {/if}
+            {/if}
+          </button>
+
           {#if refreshMessage}
-            <p class="text-[10px] text-secondary mb-2">{refreshMessage}</p>
+            <p class="text-[10px] text-muted mt-2">{refreshMessage}</p>
           {/if}
 
-          <div class="flex items-center gap-2">
-            <button
-              onclick={handleUploadAndRefresh}
-              disabled={isRefreshing || isRefreshDisabled()}
-              class="px-3 py-1 text-[10px] font-medium transition-colors cursor-pointer rounded
-                {isRefreshing || isRefreshDisabled()
-                  ? 'bg-surface text-muted border border-border cursor-not-allowed opacity-50'
-                  : 'bg-secondary text-white hover:bg-secondary/90'}"
-            >
-              {#if isRefreshing}
-                <span class="inline-flex items-center gap-1"><LoadingSpinner /> Refreshing</span>
-              {:else}
-                Upload & Refresh
+          <!-- Signal counts -->
+          {#if metadata && (metadata.edits_pending > 0 || metadata.samples_pending > 0 || metadata.generations_since_refresh > 0)}
+            <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[9px] text-muted">
+              {#if metadata.edits_pending > 0}
+                <span>{metadata.edits_pending} edit{metadata.edits_pending !== 1 ? "s" : ""}</span>
               {/if}
-            </button>
+              {#if metadata.samples_pending > 0}
+                <span>{metadata.samples_pending} sample{metadata.samples_pending !== 1 ? "s" : ""}</span>
+              {/if}
+              {#if metadata.generations_since_refresh > 0}
+                <span>{metadata.generations_since_refresh} generation{metadata.generations_since_refresh !== 1 ? "s" : ""}</span>
+              {/if}
+              <span class="text-muted/60">queued for next refresh</span>
+            </div>
+          {/if}
 
-            {#if metadata?.can_rollback}
-              <button
-                onclick={handleRollback}
-                disabled={isRollingBack}
-                class="px-3 py-1 text-[10px] border border-border hover:border-secondary transition-colors cursor-pointer text-muted hover:text-foreground rounded"
-              >
-                {isRollingBack ? "Rolling back..." : "Rollback"}
-              </button>
-            {/if}
-
-            {#if isRefreshDisabled()}
-              <span class="text-[9px] text-muted ml-auto">Available in {refreshCountdown()}</span>
-            {/if}
-          </div>
-
-          <!-- Refresh history -->
-          {#if refreshHistory.length > 0}
+          <!-- Add writing sample -->
+          {#if showSampleInput}
+            <div class="mt-2 flex flex-col gap-1.5">
+              <textarea
+                bind:value={sampleText}
+                placeholder="Paste a writing sample..."
+                class="w-full p-2 text-[10px] leading-relaxed border border-border bg-tint text-foreground resize-none rounded-md focus:outline-none focus:border-secondary"
+                rows="4"
+              ></textarea>
+              <div class="flex flex-wrap gap-1">
+                {#each overview?.formats || ["general"] as fmt}
+                  <button
+                    onclick={() => { sampleFormat = fmt; }}
+                    class="px-2 py-0.5 text-[9px] rounded cursor-pointer transition-colors
+                      {sampleFormat === fmt ? 'bg-secondary text-white' : 'bg-tint border border-border text-muted hover:text-foreground'}"
+                  >{fmt}</button>
+                {/each}
+              </div>
+              <div class="flex gap-2">
+                <button
+                  onclick={() => { showSampleInput = false; sampleText = ""; }}
+                  class="px-2 py-0.5 text-[9px] text-muted hover:text-foreground cursor-pointer transition-colors"
+                >Cancel</button>
+                <button
+                  onclick={handleSubmitSample}
+                  disabled={!sampleText.trim() || isSubmittingSample}
+                  class="px-2 py-0.5 text-[9px] bg-secondary text-white hover:bg-secondary/90 cursor-pointer rounded transition-colors font-medium disabled:opacity-50"
+                >{isSubmittingSample ? "Submitting..." : "Submit sample"}</button>
+              </div>
+            </div>
+          {:else}
             <button
-              onclick={() => { showHistory = !showHistory; }}
-              class="mt-2 text-[10px] text-muted hover:text-secondary cursor-pointer"
-            >
-              {showHistory ? "Hide" : "Show"} history ({refreshHistory.length})
-            </button>
+              onclick={() => { showSampleInput = true; }}
+              class="mt-2 text-[10px] text-muted hover:text-secondary cursor-pointer transition-colors"
+            >+ Add writing sample</button>
+          {/if}
 
-            {#if showHistory}
-              <div class="mt-2 flex flex-col gap-2">
-                {#each refreshHistory as entry}
-                  <div class="p-2 bg-tint border border-border rounded text-[10px]">
-                    <div class="flex items-center gap-2 mb-1">
-                      <span class="text-muted">{new Date(entry.created_at).toLocaleDateString()}</span>
-                      <span class="text-secondary font-medium">{entry.sections_updated} section{entry.sections_updated !== 1 ? "s" : ""}</span>
-                      {#if entry.rolled_back}
-                        <span class="px-1 py-0.5 text-[8px] bg-error/10 text-error rounded">rolled back</span>
-                      {/if}
-                    </div>
-                    {#if entry.observations.length > 0}
-                      <ul class="text-muted leading-relaxed ml-2">
-                        {#each entry.observations as obs}
-                          <li>{obs}</li>
-                        {/each}
-                      </ul>
-                    {/if}
-                    {#each entry.diffs as diff}
-                      <div class="mt-1 p-1.5 bg-surface rounded">
-                        <span class="text-[9px] text-secondary font-medium uppercase">{diff.section}</span>
+          <!-- Inline observations after a fresh refresh -->
+          {#if latestObservations.length > 0}
+            <div class="mt-2 pl-2.5" style="border-left: 2px solid var(--color-secondary)">
+              {#each latestObservations as obs}
+                <p class="text-[10px] text-foreground leading-relaxed py-0.5">{obs}</p>
+              {/each}
+            </div>
+          {/if}
+
+          <!-- Rollback confirmation -->
+          {#if showRollbackConfirm}
+            <div class="mt-2 p-2.5 bg-tint border border-border rounded-lg">
+              <p class="text-[10px] text-muted leading-relaxed">Any manual edits made after the last refresh will be lost.</p>
+              <div class="flex gap-2 mt-2">
+                <button
+                  onclick={() => { showRollbackConfirm = false; }}
+                  class="px-2 py-0.5 text-[10px] border border-border text-muted hover:text-foreground cursor-pointer rounded transition-colors"
+                >Cancel</button>
+                <button
+                  onclick={handleRollback}
+                  disabled={isRollingBack}
+                  class="px-2 py-0.5 text-[10px] bg-secondary text-white hover:bg-secondary/90 cursor-pointer rounded transition-colors font-medium disabled:opacity-50"
+                >
+                  {#if isRollingBack}
+                    <span class="inline-flex items-center gap-1"><LoadingSpinner /> Restoring...</span>
+                  {:else}
+                    Confirm rollback
+                  {/if}
+                </button>
+              </div>
+            </div>
+          {/if}
+
+          <!-- Evolution Timeline -->
+          {#if refreshHistory.length > 0}
+            <div class="relative pl-4 mt-3">
+              <div class="absolute left-[5px] top-[6px] bottom-0 w-px" style="background: var(--color-border)"></div>
+
+              <div class="flex flex-col gap-0">
+                {#each refreshHistory as entry, i}
+                  {@const isExpanded = expandedEntryId === entry.id}
+                  {@const isLatestActive = i === 0 && !entry.rolled_back}
+                  <div
+                    class="relative transition-opacity duration-200"
+                    style={entry.rolled_back ? "opacity: 0.5" : ""}
+                  >
+                    <!-- Node circle -->
+                    <div
+                      class="absolute -left-4 top-[5px] w-[10px] h-[10px] rounded-full border-2 transition-colors"
+                      style="background: {isLatestActive ? 'var(--color-secondary)' : 'var(--color-surface)'}; border-color: {isLatestActive ? 'var(--color-secondary)' : 'var(--color-border)'}"
+                    ></div>
+
+                    <button
+                      onclick={() => toggleEntry(entry.id)}
+                      class="w-full text-left py-2 cursor-pointer"
+                    >
+                      <div class="flex items-center gap-2">
+                        <span class="text-[10px] text-foreground">{new Date(entry.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                        {#if entry.rolled_back}
+                          <span class="px-1 py-px text-[8px] uppercase tracking-wide font-medium rounded" style="color: var(--color-error); opacity: 0.7">Rolled back</span>
+                        {/if}
+                        {#if !isExpanded}
+                          <svg class="w-[8px] h-[8px] ml-auto shrink-0" viewBox="0 0 8 8" fill="none" stroke="var(--color-muted)" stroke-width="1.5" stroke-linecap="round"><path d="M2 3l2 2 2-2"/></svg>
+                        {/if}
                       </div>
-                    {/each}
+                      <p class="text-[9px] text-muted mt-0.5">
+                        {entry.edits_analyzed} edit{entry.edits_analyzed !== 1 ? "s" : ""}, {entry.samples_analyzed} sample{entry.samples_analyzed !== 1 ? "s" : ""}, {entry.generations_analyzed} generation{entry.generations_analyzed !== 1 ? "s" : ""}
+                      </p>
+                    </button>
+
+                    {#if isExpanded}
+                      <div class="pb-3 flex flex-col gap-2.5">
+                        {#if entry.observations.length > 0}
+                          <div>
+                            <span class="text-[9px] uppercase tracking-wide text-muted font-medium">What we noticed</span>
+                            <div class="mt-1 pl-2.5" style="border-left: 2px solid var(--color-secondary)">
+                              {#each entry.observations as obs}
+                                <p class="text-[10px] text-foreground leading-relaxed py-0.5">{obs}</p>
+                              {/each}
+                            </div>
+                          </div>
+                        {/if}
+
+                        {#if entry.diffs.length > 0}
+                          <div>
+                            <span class="text-[9px] uppercase tracking-wide text-muted font-medium">Changes</span>
+                            <div class="mt-1 flex flex-col gap-1">
+                              {#each entry.diffs as diff}
+                                {@const isDiffOpen = expandedDiffSection === diff.section}
+                                <div>
+                                  <button
+                                    onclick={() => toggleDiffSection(diff.section)}
+                                    class="flex items-center gap-1.5 text-[10px] text-foreground cursor-pointer hover:text-secondary transition-colors py-0.5 w-full text-left"
+                                  >
+                                    <svg
+                                      class="w-[7px] h-[7px] shrink-0 transition-transform duration-150"
+                                      class:rotate-90={isDiffOpen}
+                                      viewBox="0 0 7 7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+                                    ><path d="M2.5 1l2.5 2.5-2.5 2.5"/></svg>
+                                    {formatSectionName(diff.section)}
+                                  </button>
+                                  {#if isDiffOpen}
+                                    <div class="ml-3 mt-1 flex flex-col gap-1.5">
+                                      <div class="relative overflow-hidden rounded" style="max-height: 80px">
+                                        <pre class="text-[9px] font-mono text-muted p-2 leading-relaxed whitespace-pre-wrap" style="opacity: 0.6">{diff.before.slice(0, 300)}{diff.before.length > 300 ? "..." : ""}</pre>
+                                        <div class="absolute bottom-0 left-0 right-0 h-4" style="background: linear-gradient(transparent, var(--color-surface))"></div>
+                                      </div>
+                                      <div class="w-full h-px" style="background: var(--color-border)"></div>
+                                      <div class="relative overflow-hidden rounded" style="max-height: 80px">
+                                        <pre class="text-[9px] font-mono text-secondary p-2 leading-relaxed whitespace-pre-wrap">{diff.after.slice(0, 300)}{diff.after.length > 300 ? "..." : ""}</pre>
+                                        <div class="absolute bottom-0 left-0 right-0 h-4" style="background: linear-gradient(transparent, var(--color-surface))"></div>
+                                      </div>
+                                    </div>
+                                  {/if}
+                                </div>
+                              {/each}
+                            </div>
+                          </div>
+                        {/if}
+
+                        {#if isLatestActive && metadata?.can_rollback}
+                          <button
+                            onclick={() => { showRollbackConfirm = true; }}
+                            class="self-start text-[10px] text-muted hover:text-foreground cursor-pointer transition-colors mt-0.5"
+                          >Undo this refresh</button>
+                        {/if}
+                      </div>
+                    {/if}
                   </div>
                 {/each}
               </div>
-            {/if}
+            </div>
+          {:else if !isRefreshing}
+            <p class="text-[10px] text-muted text-center py-3 mt-1">
+              No refreshes yet. Keep writing and come back when you are ready.
+            </p>
           {/if}
         </div>
       {:else}

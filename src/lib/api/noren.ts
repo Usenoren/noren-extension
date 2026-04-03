@@ -178,6 +178,9 @@ export interface ProfileMetadata {
   next_refresh_available: string | null;
   can_rollback: boolean;
   voice_overview?: VoiceOverview | null;
+  edits_pending: number;
+  samples_pending: number;
+  generations_since_refresh: number;
 }
 
 export interface RefreshHistoryEntry {
@@ -598,13 +601,22 @@ async function byokGenerate(params: {
   const apiKey = await getApiKey(settings.provider.name);
 
   // Build system message with voice profile context
-  let system = params.systemPrompt || "You are a helpful writing assistant. Match the user's voice and style.";
+  let system: string;
 
-  // Inject voice profile if available (skip for "fix" — purely mechanical correction)
-  if (params.quickAction !== "fix") {
+  if (params.quickAction === "rewrite") {
+    // Rewrite: profile as context (understand the writer), not instruction (imitate the profile)
+    system = "You are a writing editor. The writer's voice profile is below for context.";
     const voiceProfile = await getVoiceProfileText(params.format);
-    if (voiceProfile) {
-      system += `\n\n[Voice Profile — write in this style]:\n${voiceProfile}`;
+    if (voiceProfile) system += `\n\n${voiceProfile}`;
+    system += "\n\nPolish their text. Preserve their voice. Output the text only.";
+  } else {
+    system = params.systemPrompt || "You are a helpful writing assistant. Match the user's voice and style.";
+    // Inject voice profile if available (skip for "fix" — purely mechanical correction)
+    if (params.quickAction !== "fix") {
+      const voiceProfile = await getVoiceProfileText(params.format);
+      if (voiceProfile) {
+        system += `\n\n[Voice Profile — write in this style]:\n${voiceProfile}`;
+      }
     }
   }
 
@@ -1631,10 +1643,58 @@ export async function fetchAnnouncements(since?: string): Promise<Announcement[]
 // ============================================================
 
 export async function logEdit(format: string, original: string, edited: string): Promise<void> {
+  const entry = {
+    ts: new Date().toISOString(),
+    ctx: format,
+    orig: original,
+    edit: edited,
+    app: "noren-ext",
+  };
+
+  // Try server upload first (Pro users). Fire-and-forget.
+  const token = await getAuthToken();
+  if (token) {
+    try {
+      await apiJson("/profile/upload-edits", {
+        method: "POST",
+        body: JSON.stringify({ entries: [entry] }),
+      });
+      // Also flush any locally queued edits from previous offline sessions
+      await _flushLocalEditQueue();
+      return;
+    } catch {
+      // Server upload failed (offline, 401, etc.). Fall through to local storage.
+    }
+  }
+
+  // Fallback: store locally for later upload
   const result = await chrome.storage.local.get("edit_log");
   const log: EditLogEntry[] = result.edit_log || [];
   log.push({ format, original, edited, app: "noren-ext", timestamp: Date.now() });
   await chrome.storage.local.set({ edit_log: log });
+}
+
+async function _flushLocalEditQueue(): Promise<void> {
+  const result = await chrome.storage.local.get("edit_log");
+  const log: EditLogEntry[] = result.edit_log || [];
+  if (log.length === 0) return;
+  // Convert local format to server format
+  const entries = log.map(e => ({
+    ts: new Date(e.timestamp).toISOString(),
+    ctx: e.format,
+    orig: e.original,
+    edit: e.edited,
+    app: e.app,
+  }));
+  try {
+    await apiJson("/profile/upload-edits", {
+      method: "POST",
+      body: JSON.stringify({ entries }),
+    });
+    await chrome.storage.local.remove("edit_log");
+  } catch {
+    // Will retry next time
+  }
 }
 
 export async function getEditLogCount(): Promise<number> {
@@ -1643,15 +1703,28 @@ export async function getEditLogCount(): Promise<number> {
   return log.length;
 }
 
-export async function uploadEditLog(): Promise<void> {
+export async function uploadEditLog(externalSamples?: { text: string; format: string; added_at: string }[]): Promise<void> {
   const result = await chrome.storage.local.get("edit_log");
   const log: EditLogEntry[] = result.edit_log || [];
-  if (log.length === 0) return;
+
+  const entries = log.map(e => ({
+    ts: new Date(e.timestamp).toISOString(),
+    ctx: e.format,
+    orig: e.original,
+    edit: e.edited,
+    app: e.app,
+  }));
+
+  const body: Record<string, unknown> = {};
+  if (entries.length > 0) body.entries = entries;
+  if (externalSamples && externalSamples.length > 0) body.external_samples = externalSamples;
+  if (Object.keys(body).length === 0) return;
+
   await apiJson("/profile/upload-edits", {
     method: "POST",
-    body: JSON.stringify({ edits: log }),
+    body: JSON.stringify(body),
   });
-  await chrome.storage.local.remove("edit_log");
+  if (entries.length > 0) await chrome.storage.local.remove("edit_log");
 }
 
 // ============================================================
@@ -1739,12 +1812,20 @@ async function* byokGenerateStream(params: {
   const apiKey = await getApiKey(settings.provider.name);
 
   // Build system message (same logic as byokGenerate)
-  let system = "You are a helpful writing assistant. Match the user's voice and style.";
+  let system: string;
 
-  if (params.quickAction !== "fix") {
+  if (params.quickAction === "rewrite") {
+    system = "You are a writing editor. The writer's voice profile is below for context.";
     const voiceProfile = await getVoiceProfileText(params.format);
-    if (voiceProfile) {
-      system += `\n\n[Voice Profile — write in this style]:\n${voiceProfile}`;
+    if (voiceProfile) system += `\n\n${voiceProfile}`;
+    system += "\n\nPolish their text. Preserve their voice. Output the text only.";
+  } else {
+    system = "You are a helpful writing assistant. Match the user's voice and style.";
+    if (params.quickAction !== "fix") {
+      const voiceProfile = await getVoiceProfileText(params.format);
+      if (voiceProfile) {
+        system += `\n\n[Voice Profile — write in this style]:\n${voiceProfile}`;
+      }
     }
   }
 
