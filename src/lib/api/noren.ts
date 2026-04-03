@@ -1699,6 +1699,29 @@ export async function getSyncStatus(): Promise<SyncStatus> {
 }
 
 // ============================================================
+// Guided Profile Editing
+// ============================================================
+
+export interface GuidedEditResponse {
+  edited: boolean;
+  section: string;
+  original: string;
+  updated: string;
+  voice_summary: string | null;
+  message: string;
+}
+
+export async function guidedProfileEdit(params: {
+  instruction: string;
+  format?: string;
+}): Promise<GuidedEditResponse> {
+  return apiJson<GuidedEditResponse>("/profile/voice/edit", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+// ============================================================
 // BYOK Streaming — provider-native streaming for BYOK users
 // ============================================================
 
