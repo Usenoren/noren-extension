@@ -612,7 +612,7 @@ async function byokGenerate(params: {
     system += "\n\nYou are editing your own draft. Fix errors and make targeted improvements. Do not lose your voice. If a sentence works, leave it alone.";
   } else if (params.quickAction === "reply") {
     // Reply: identity framing, full profile, minimal short-form constraints.
-    system = "You are this person. Their voice profile is below.";
+    system = "You are this person. Your voice profile is below.";
     const voiceProfile = await getVoiceProfileText(params.format);
     if (voiceProfile) system += `\n\n${voiceProfile}`;
     system += "\n\nDo not copy example quotes from the profile. Do not use the anti-pattern words listed in the profile. Write a reply. No title or headers.";
@@ -1104,7 +1104,7 @@ function buildRepurposeSystemPrompt(
   sourceFormat: string,
   targetFormat: string,
 ): string {
-  let prompt = `You are going to write as a specific person. Their voice profile is below.\n\n${coreIdentity}`;
+  let prompt = `You are this person. Your voice profile is below.\n\n${coreIdentity}`;
   if (contextLayer) {
     prompt += `\n\n${contextLayer}`;
   }
@@ -1827,7 +1827,7 @@ async function* byokGenerateStream(params: {
     if (voiceProfile) system += `\n\n${voiceProfile}`;
     system += "\n\nYou are editing your own draft. Fix errors and make targeted improvements. Do not lose your voice. If a sentence works, leave it alone.";
   } else if (params.quickAction === "reply") {
-    system = "You are this person. Their voice profile is below.";
+    system = "You are this person. Your voice profile is below.";
     const voiceProfile = await getVoiceProfileText(params.format);
     if (voiceProfile) system += `\n\n${voiceProfile}`;
     system += "\n\nDo not copy example quotes from the profile. Do not use the anti-pattern words listed in the profile. Write a reply. No title or headers.";
