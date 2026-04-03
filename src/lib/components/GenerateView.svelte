@@ -48,6 +48,13 @@
   let streamTokens = $state({ input: 0, output: 0 });
   let isGenerating = $derived(phase === "streaming" || phase === "polishing");
 
+  // --- Inline refinement state ---
+  let refineSelection = $state<{ start: number; end: number; text: string } | null>(null);
+  let refineInput = $state("");
+  let isRefining = $state(false);
+  let textareaEl: HTMLTextAreaElement | undefined = $state();
+  let refineInputEl: HTMLInputElement | undefined = $state();
+
   // --- History persistence ---
   const HISTORY_KEY = "noren:weave_history";
   const MAX_HISTORY = 20;
@@ -147,6 +154,9 @@
     fixSpans = [];
     cleanupStats = null;
     streamTokens = { input: 0, output: 0 };
+    refineSelection = null;
+    refineInput = "";
+    isRefining = false;
 
     // Compare mode: non-streaming (comparison needs two results)
     if (compareMode) {
@@ -359,6 +369,59 @@
     compareMode = false;
     copied = false;
     error = "";
+    refineSelection = null;
+    refineInput = "";
+    isRefining = false;
+  }
+
+  // --- Inline refinement handlers ---
+  function handleOutputMouseUp() {
+    if (!textareaEl) return;
+    const start = textareaEl.selectionStart;
+    const end = textareaEl.selectionEnd;
+    if (start === end) {
+      refineSelection = null;
+      return;
+    }
+    refineSelection = { start, end, text: editedText.slice(start, end) };
+    // Focus the refine input after a tick (bar needs to render first)
+    setTimeout(() => refineInputEl?.focus(), 50);
+  }
+
+  function handleOutputKeyUp(e: KeyboardEvent) {
+    if (e.shiftKey || e.metaKey || e.ctrlKey) handleOutputMouseUp();
+  }
+
+  async function handleRefine() {
+    if (!refineSelection || !refineInput.trim() || isRefining) return;
+    isRefining = true;
+    error = "";
+
+    try {
+      const result = await generate({
+        prompt: `${refineInput.trim()}\n\nReturn only the revised text.\n\n${refineSelection.text}`,
+        format,
+        level: "guided",
+        mode: "adapt",
+        context: editedText,
+        quickAction: "rewrite",
+      });
+
+      const before = editedText.substring(0, refineSelection.start);
+      const after = editedText.substring(refineSelection.end);
+      editedText = before + result.text + after;
+    } catch (e) {
+      error = friendlyError(e);
+    } finally {
+      isRefining = false;
+      refineSelection = null;
+      refineInput = "";
+    }
+  }
+
+  function dismissRefine() {
+    refineSelection = null;
+    refineInput = "";
   }
 
   // Build HTML with highlighted fix spans. Escapes text and wraps spans in glow marks.
@@ -660,12 +723,39 @@
             >{@html buildHighlightedHtml(cleanedText, fixSpans)}</div>
           {:else}
             <textarea
+              bind:this={textareaEl}
               bind:value={editedText}
+              onmouseup={handleOutputMouseUp}
+              onkeyup={handleOutputKeyUp}
               class="w-full h-full p-4 font-heading italic text-[15px] text-foreground bg-transparent resize-none border-none focus:outline-none selectable {cleanedText ? '' : 'animate-text-weave'}"
               style="line-height:1.85;letter-spacing:-0.2px"
             ></textarea>
           {/if}
         </div>
+
+        {#if refineSelection}
+          <div class="refine-bar">
+            <svg class="w-3.5 h-3.5 shrink-0 text-accent opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z"/></svg>
+            <input
+              bind:this={refineInputEl}
+              bind:value={refineInput}
+              onkeydown={(e) => { if (e.key === "Enter") handleRefine(); if (e.key === "Escape") dismissRefine(); }}
+              placeholder="Refine selection..."
+              disabled={isRefining}
+              class="flex-1 min-w-0 bg-transparent border-none text-[11px] text-foreground outline-none placeholder:text-muted placeholder:italic"
+            />
+            {#if isRefining}
+              <div class="refine-spinner"></div>
+            {:else}
+              <button onclick={handleRefine} class="refine-submit" title="Refine">
+                <svg class="w-[11px] h-[11px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12h15m0 0l-6.75-6.75M19.5 12l-6.75 6.75"/></svg>
+              </button>
+            {/if}
+            <button onclick={dismissRefine} class="refine-dismiss" title="Dismiss">
+              <svg class="w-[10px] h-[10px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+        {/if}
 
         <div class="flex items-center pb-2">
           <div class="flex items-center gap-2">

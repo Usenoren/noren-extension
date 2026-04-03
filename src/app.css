@@ -1001,3 +1001,59 @@ html[data-theme-mode="light"] .loom-idle-img {
 }
 .idle-weft { animation: idle-weft-drift 8s ease-in-out infinite; }
 .idle-weft-ghost { animation: idle-weft-ghost-drift 10s ease-in-out infinite; }
+
+/* --- Inline refinement bar --- */
+.refine-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  margin: 0 0 4px;
+  background: var(--color-tint);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  animation: refine-slide 0.2s ease-out;
+}
+@keyframes refine-slide {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.refine-submit {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  border: none;
+  background: var(--color-accent);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.refine-submit:hover { background: #8E3B4A; }
+.refine-dismiss {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--color-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.refine-dismiss:hover { color: var(--color-foreground); }
+.refine-spinner {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: polish-spin 0.7s linear infinite;
+}
