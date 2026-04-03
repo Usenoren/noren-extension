@@ -11,6 +11,15 @@
   import OnboardingView from "$lib/components/OnboardingView.svelte";
   import NorenMark from "$lib/components/NorenMark.svelte";
   import AnnouncementBell from "$lib/components/AnnouncementBell.svelte";
+  import SpotlightTour from "$lib/components/SpotlightTour.svelte";
+  import { startTour, type TourStep } from "$lib/stores/tour.svelte";
+
+  const extensionTourSteps: TourStep[] = [
+    { target: "format", description: "Every format has its own rhythm. Pick one and Noren adjusts length, structure, and tone to match.", placement: "bottom" },
+    { target: "adapt", description: "Have a draft already? Switch to Adapt. Paste your text and Noren rewrites it in your voice.", placement: "bottom" },
+    { target: "chat", description: "Your thinking space. Brainstorm, research, or talk through ideas before you write.", placement: "bottom" },
+    { target: null, description: "Highlight text on any page to Rewrite, Reply, or Fix in your voice. Add a brief note after your text for more control, like \u2018expand this\u2019 or \u2018tighten.\u2019", placement: "center" },
+  ];
 
   type View = "generate" | "repurpose" | "chat" | "profile" | "settings" | "help";
   let view: View = $state("generate");
@@ -76,8 +85,18 @@
     }
     getProfileOverview().then((overview) => {
       hasProfile = overview.exists;
+      if (tab === "generate" && overview.exists) {
+        setTimeout(() => startTour(extensionTourSteps), 700);
+      }
     }).catch(() => {});
   }
+
+  // Trigger tour for users who completed onboarding in a previous session
+  $effect(() => {
+    if (!loading && !showOnboarding && hasProfile && view === "generate") {
+      setTimeout(() => startTour(extensionTourSteps), 700);
+    }
+  });
 
   function handleNavigate(tab: string) {
     const validViews: View[] = ["generate", "chat", "profile", "settings", "help"];
@@ -99,6 +118,7 @@
   <nav class="flex items-center gap-1 px-3 py-2 shrink-0 bg-surface border-b border-border">
     {#each navItems as item}
       <button
+        data-tour={item.id === "chat" ? "chat" : undefined}
         onclick={() => { view = item.id; }}
         class="relative flex items-center gap-1.5 px-3 py-2 text-xs rounded-md transition-colors cursor-pointer
           {view === item.id
@@ -175,5 +195,6 @@
       <HelpView />
     </div>
   </div>
+  <SpotlightTour />
 </div>
 {/if}

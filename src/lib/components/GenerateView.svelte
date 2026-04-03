@@ -484,6 +484,7 @@
     <span class="mr-auto"></span>
 
     <select
+      data-tour="format"
       bind:value={format}
       class="px-2 py-1 text-xs border border-border bg-surface text-foreground rounded-md focus:outline-none focus:border-secondary"
     >
@@ -493,6 +494,7 @@
     </select>
 
     <button
+      data-tour="adapt"
       onclick={() => { mode = mode === "generate" ? "adapt" : "generate"; }}
       class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors cursor-pointer rounded-lg
         {mode === 'adapt'
@@ -859,6 +861,7 @@
 
     <div class="flex items-end gap-2">
       <textarea
+        data-tour="input"
         bind:value={prompt}
         onkeydown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleGenerate(); }}
         class="flex-1 p-3 text-sm resize-none bg-surface text-foreground placeholder-muted border border-border rounded-xl focus:outline-none focus:border-secondary"
