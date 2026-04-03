@@ -111,3 +111,7 @@ If the [Noren desktop app](https://github.com/mitrionxyz/noren-app) is installed
 | `npm run dev` | Watch mode build |
 | `npm run build` | Production build → `dist/` |
 | `npm run check` | Svelte + TypeScript type checking |
+
+## License
+
+[MIT](LICENSE)
