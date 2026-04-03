@@ -297,7 +297,9 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<Respon
         await setTokens(data.access_token, data.refresh_token);
         headers["Authorization"] = `Bearer ${data.access_token}`;
         return fetch(`${API_BASE}${path}`, { ...options, headers });
-      } else {
+      } else if (refreshRes.status === 401) {
+        // Token genuinely revoked (password change, logout-all, expired).
+        // Only clear on 401 — not on 429 (rate limit) or 5xx (transient).
         await clearTokens();
       }
     }
@@ -1399,7 +1401,7 @@ export async function norenProLogin(email: string, password: string): Promise<No
   const data = await res.json();
   await setTokens(data.access_token, data.refresh_token);
   await setInferenceMode("noren_pro");
-  return { logged_in: true, email, inference_mode: "noren_pro", tokens_used: null, tokens_limit: null, requests_this_month: null };
+  return { logged_in: true, email, inference_mode: "noren_pro", tokens_used: null, tokens_limit: null, requests_this_month: null, generations_used: null, generations_limit: null };
 }
 
 export async function norenProSignup(email: string, password: string): Promise<NorenProStatus> {
@@ -1412,7 +1414,7 @@ export async function norenProSignup(email: string, password: string): Promise<N
   const data = await res.json();
   await setTokens(data.access_token, data.refresh_token);
   await setInferenceMode("noren_pro");
-  return { logged_in: true, email, inference_mode: "noren_pro", tokens_used: null, tokens_limit: null, requests_this_month: null };
+  return { logged_in: true, email, inference_mode: "noren_pro", tokens_used: null, tokens_limit: null, requests_this_month: null, generations_used: null, generations_limit: null };
 }
 
 export async function verifyEmail(code: string): Promise<string> {
