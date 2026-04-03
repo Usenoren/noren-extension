@@ -604,11 +604,12 @@ async function byokGenerate(params: {
   let system: string;
 
   if (params.quickAction === "rewrite") {
-    // Rewrite: profile as context (understand the writer), not instruction (imitate the profile)
-    system = "You are a writing editor. The writer's voice profile is below for context.";
+    // Rewrite: full profile for voice-specific rules (anti-patterns like em dashes),
+    // but prompt constrains the model to fix+clarity, not restyle.
+    system = "You are a copy editor. The writer's voice profile is below for reference.";
     const voiceProfile = await getVoiceProfileText(params.format);
     if (voiceProfile) system += `\n\n${voiceProfile}`;
-    system += "\n\nPolish their text. Preserve their voice. Output the text only.";
+    system += "\n\nFix errors and improve clarity. Do not restructure sentences or change their form. Treat everything the person wrote as intentional, including casual language, profanity, and rhetorical style.";
   } else {
     system = params.systemPrompt || "You are a helpful writing assistant. Match the user's voice and style.";
     // Inject voice profile if available (skip for "fix" — purely mechanical correction)
@@ -1815,10 +1816,10 @@ async function* byokGenerateStream(params: {
   let system: string;
 
   if (params.quickAction === "rewrite") {
-    system = "You are a writing editor. The writer's voice profile is below for context.";
+    system = "You are a copy editor. The writer's voice profile is below for reference.";
     const voiceProfile = await getVoiceProfileText(params.format);
     if (voiceProfile) system += `\n\n${voiceProfile}`;
-    system += "\n\nPolish their text. Preserve their voice. Output the text only.";
+    system += "\n\nFix errors and improve clarity. Do not restructure sentences or change their form. Treat everything the person wrote as intentional, including casual language, profanity, and rhetorical style.";
   } else {
     system = "You are a helpful writing assistant. Match the user's voice and style.";
     if (params.quickAction !== "fix") {
