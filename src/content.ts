@@ -438,15 +438,17 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
       targetEl.value = targetEl.value.slice(0, start) + targetEl.value.slice(end);
       targetEl.selectionStart = targetEl.selectionEnd = start;
     } else if (targetEl.getAttribute("contenteditable") === "true") {
-      // Restore selection from saved state if the browser lost it
-      // (e.g. clicking the toolbar button shifted focus away)
-      const sel = window.getSelection();
-      if (!sel || sel.isCollapsed) {
-        if (savedEditableSelection && savedEditableSelection.el === targetEl && savedEditableSelection.text) {
-          findAndSelectText(targetEl, savedEditableSelection.text);
+      if (!isFrameworkEditor(targetEl)) {
+        // Plain contenteditable: delete selected text so streaming fills the gap
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed) {
+          if (savedEditableSelection && savedEditableSelection.el === targetEl && savedEditableSelection.text) {
+            findAndSelectText(targetEl, savedEditableSelection.text);
+          }
         }
+        document.execCommand("delete");
       }
-      document.execCommand("delete");
+      // Framework editors: skip delete, will replace via paste on completion
     }
   }
 
@@ -459,6 +461,7 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
     (targetEl instanceof HTMLTextAreaElement || targetEl instanceof HTMLInputElement);
   const isContentEditable = streamIntoField && targetEl &&
     !isTextarea && targetEl.getAttribute("contenteditable") === "true";
+  const isFramework = isContentEditable && isFrameworkEditor(targetEl!);
 
   port.onMessage.addListener((event) => {
     if (event.type === "delta") {
@@ -466,7 +469,7 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
       if (isTextarea && targetEl) {
         // textarea/input: stream chunks directly, cursor tracked
         appendToField(targetEl, event.text);
-      } else if (isContentEditable && targetEl) {
+      } else if (isContentEditable && !isFramework && targetEl) {
         // contenteditable: stream chunks with paragraph breaks preserved.
         // execCommand("insertText") swallows \n in per-chunk calls,
         // so we split on newlines and use insertParagraph for double breaks.
@@ -492,8 +495,34 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
       port.disconnect();
       dismissToolbar();
 
-      if (isContentEditable) {
-        // Already streamed in via execCommand during deltas
+      if (isContentEditable && targetEl) {
+        if (isFramework) {
+          // Framework editors (Draft.js, Lexical, Quill): replace original
+          // text with final content via paste so the framework's internal
+          // state stays in sync with the DOM.
+          targetEl.focus();
+          // `text` (function param) is the original selection captured at
+          // toolbar creation — stable, unlike savedEditableSelection which
+          // can be overwritten by user clicks during loading.
+          if (findAndSelectText(targetEl, text)) {
+            const dt = new DataTransfer();
+            dt.setData("text/plain", finalContent);
+            targetEl.dispatchEvent(new ClipboardEvent("paste", {
+              clipboardData: dt,
+              bubbles: true,
+              cancelable: true,
+            }));
+          } else {
+            // Original text not found in DOM (framework re-rendered).
+            // Copy to clipboard instead of pasting at an arbitrary position.
+            navigator.clipboard.writeText(finalContent).then(() => {
+              showCopiedNotification();
+            });
+          }
+        } else {
+          // Plain contenteditable: text already streamed, restore focus
+          targetEl.focus();
+        }
       } else if (isTextarea) {
         // textarea/input: text already streamed in
       } else {
