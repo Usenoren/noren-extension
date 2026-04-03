@@ -41,7 +41,7 @@ Noren runs in two modes:
 
 ### Key User Flows
 
-1. **Generate (Weave)** - type a prompt, pick a format and enforcement level, hit Weave. Output auto-copies to clipboard.
+1. **Generate (Weave)** - type a prompt, pick a format and enforcement level, hit Weave. Output copies to clipboard automatically.
 2. **Quick actions** - select text on any page, pick an action from the toolbar, result replaces the selection (or copies if the field is read-only).
 3. **Chat** - multi-turn conversation with your voice profile injected. Supports markdown, message editing, and history.
 4. **Context menu** - right-click selected text to open it as context in either Generate or Chat.
