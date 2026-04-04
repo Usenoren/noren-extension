@@ -133,6 +133,8 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onMessage.addListener(async (message) => {
     const { action, text, detectedFormat, surroundingContext, intent } = message;
     const promptFn = QUICK_ACTION_PROMPTS[action] || QUICK_ACTION_PROMPTS.rewrite;
+    const controller = new AbortController();
+    port.onDisconnect.addListener(() => controller.abort("User cancelled"));
 
     try {
       const stream = generateStream({
@@ -141,6 +143,7 @@ chrome.runtime.onConnect.addListener((port) => {
         level: "guided",
         quickAction: action,
         mode: "generate",
+        signal: controller.signal,
       });
 
       for await (const event of stream) {

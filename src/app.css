@@ -346,6 +346,14 @@ body {
   50% { opacity: 1; transform: scale(1.4); }
 }
 
+.stop-btn {
+  font-size: 10px; font-weight: 500; color: var(--color-muted);
+  background: none; border: 1px solid var(--color-border); border-radius: 4px;
+  padding: 2px 8px; cursor: pointer; font-family: inherit; transition: all 150ms ease;
+  text-transform: none; letter-spacing: 0; margin-left: 4px;
+}
+.stop-btn:hover { border-color: var(--color-accent); color: var(--color-accent); }
+
 .stream-text-dim {
   opacity: 0.35;
   filter: blur(1px);
