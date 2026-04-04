@@ -1,7 +1,7 @@
 {
   "name": "noren-extension",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Noren Chrome extension. Voice-matched AI writing in any text field.",
   "license": "MIT",
   "repository": {
