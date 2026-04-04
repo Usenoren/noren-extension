@@ -2,6 +2,18 @@
 
 AI writing assistant that learns your voice. Generate text, rewrite selections, and chat - all from your browser.
 
+### Quick Actions
+Highlight text on any page. Rewrite, reply, or fix in your voice.
+
+![Quick actions: highlight text, hit rewrite, output replaces it](demo-extension.gif)
+
+### Weave
+Type a prompt in the popup. Get output that reads like you.
+
+![Weave: type a prompt, get voice-matched output](demo-weave.gif)
+
+---
+
 ## Quick Start
 
 ```bash
@@ -102,7 +114,7 @@ src/
 
 ## Keychain Bridge (Optional)
 
-If the [Noren desktop app](https://github.com/mitrionxyz/noren-app) is installed, API keys are stored in the OS keychain instead of browser storage. The desktop app registers a native messaging host that the extension communicates with automatically. This is optional - the extension works fine without it.
+If the [Noren desktop app](https://github.com/Usenoren/noren-app) is installed, API keys are stored in the OS keychain instead of browser storage. The desktop app registers a native messaging host that the extension communicates with automatically. This is optional - the extension works fine without it.
 
 ## Scripts
 
