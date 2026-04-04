@@ -113,6 +113,34 @@
       </div>
     </section>
 
+    <!-- Quick actions -->
+    <section class="mb-7">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="font-heading italic text-[13px] text-accent">Quick actions</span>
+        <div class="flex-1 h-px bg-gradient-to-r from-border to-transparent"></div>
+      </div>
+      <div class="flex flex-col gap-1.5">
+        <div class="flex items-start gap-2.5 p-3 bg-surface border border-border rounded-lg shadow-card">
+          <span class="font-heading italic text-base text-accent opacity-35 leading-none min-w-[18px] pt-px">R</span>
+          <div>
+            <p class="text-xs text-foreground leading-relaxed"><strong class="font-medium">Rewrite</strong> edits your text in your voice. Fixes errors and makes targeted improvements while keeping your style intact.</p>
+            <p class="text-[10.5px] text-muted mt-1 leading-relaxed">Add instructions after your text for more control: "expand this to 200 words", "tighten", "work on this, keep the length."</p>
+          </div>
+        </div>
+        <div class="flex items-start gap-2.5 p-3 bg-surface border border-border rounded-lg shadow-card">
+          <span class="font-heading italic text-base text-accent opacity-35 leading-none min-w-[18px] pt-px">R</span>
+          <div>
+            <p class="text-xs text-foreground leading-relaxed"><strong class="font-medium">Reply</strong> writes a response to any post in your voice.</p>
+            <p class="text-[10.5px] text-muted mt-1 leading-relaxed">Type a brief direction after the post: "I disagree", "supportive but push back on pricing." Noren takes it from there.</p>
+          </div>
+        </div>
+        <div class="flex items-start gap-2.5 p-3 bg-surface border border-border rounded-lg shadow-card">
+          <span class="font-heading italic text-base text-accent opacity-35 leading-none min-w-[18px] pt-px">F</span>
+          <p class="text-xs text-foreground leading-relaxed"><strong class="font-medium">Fix</strong> corrects grammar, spelling, and punctuation. No stylistic changes. Fast.</p>
+        </div>
+      </div>
+    </section>
+
     <!-- FAQ -->
     <section class="mb-7">
       <div class="flex items-center gap-2 mb-3">

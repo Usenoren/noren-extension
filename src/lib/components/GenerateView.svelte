@@ -46,6 +46,7 @@
   let fixSpans = $state<FixSpan[]>([]);
   let cleanupStats = $state<{ found: number; fixed: number } | null>(null);
   let streamTokens = $state({ input: 0, output: 0 });
+  let streamAbortController = $state<AbortController | null>(null);
   let isGenerating = $derived(phase === "streaming" || phase === "polishing");
 
   // --- Inline refinement state ---
@@ -184,6 +185,8 @@
 
     // Streaming generation
     phase = "streaming";
+    const abortController = new AbortController();
+    streamAbortController = abortController;
     let cleanupTimeout: ReturnType<typeof setTimeout> | undefined;
 
     try {
@@ -198,6 +201,7 @@
         mode: mode !== "generate" ? mode : undefined,
         context: contextText || undefined,
         attachments: attachmentContents,
+        signal: abortController.signal,
       })) {
         if (event.type === "delta") {
           streamedText += event.text;
@@ -251,6 +255,20 @@
       }
     } catch (e) {
       error = friendlyError(e);
+      phase = "idle";
+    } finally {
+      streamAbortController = null;
+    }
+  }
+
+  function handleCancelGeneration() {
+    streamAbortController?.abort("User cancelled");
+    streamAbortController = null;
+    if (streamedText) {
+      output = { text: streamedText, input_tokens: streamTokens.input, output_tokens: streamTokens.output };
+      editedText = streamedText;
+      phase = "done";
+    } else {
       phase = "idle";
     }
   }
@@ -484,6 +502,7 @@
     <span class="mr-auto"></span>
 
     <select
+      data-tour="format"
       bind:value={format}
       class="px-2 py-1 text-xs border border-border bg-surface text-foreground rounded-md focus:outline-none focus:border-secondary"
     >
@@ -493,6 +512,7 @@
     </select>
 
     <button
+      data-tour="adapt"
       onclick={() => { mode = mode === "generate" ? "adapt" : "generate"; }}
       class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors cursor-pointer rounded-lg
         {mode === 'adapt'
@@ -624,6 +644,7 @@
             <span class="font-mono text-[10px] {phase === 'polishing' ? 'text-accent' : 'text-muted'}">
               {phase === "polishing" ? "Polishing voice" : "Generating"}
             </span>
+            <button class="stop-btn" onclick={handleCancelGeneration}>Stop</button>
           </span>
         </div>
 
@@ -859,6 +880,7 @@
 
     <div class="flex items-end gap-2">
       <textarea
+        data-tour="input"
         bind:value={prompt}
         onkeydown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleGenerate(); }}
         class="flex-1 p-3 text-sm resize-none bg-surface text-foreground placeholder-muted border border-border rounded-xl focus:outline-none focus:border-secondary"

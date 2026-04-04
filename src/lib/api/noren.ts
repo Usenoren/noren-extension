@@ -178,6 +178,9 @@ export interface ProfileMetadata {
   next_refresh_available: string | null;
   can_rollback: boolean;
   voice_overview?: VoiceOverview | null;
+  edits_pending: number;
+  samples_pending: number;
+  generations_since_refresh: number;
 }
 
 export interface RefreshHistoryEntry {
@@ -265,6 +268,36 @@ async function bgFetch(url: string, init?: RequestInit): Promise<Response> {
     status: result.status,
     statusText: result.ok ? "OK" : "Error",
   });
+}
+
+// ============================================================
+// Stall-protected SSE reader
+// ============================================================
+
+const STALL_TIMEOUT_MS = 90_000; // 90s — fires before server gateway's 120s stall timeout
+
+function createStallProtectedReader(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  controller: AbortController,
+  stallTimeoutMs = STALL_TIMEOUT_MS,
+) {
+  let stallTimer: ReturnType<typeof setTimeout>;
+  const resetStallTimer = () => {
+    clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => {
+      controller.abort("Stream stalled");
+      reader.cancel().catch(() => {});
+    }, stallTimeoutMs);
+  };
+  resetStallTimer();
+  return {
+    read: async () => {
+      const result = await reader.read();
+      if (!result.done) resetStallTimer();
+      return result;
+    },
+    cleanup: () => clearTimeout(stallTimer),
+  };
 }
 
 // ============================================================
@@ -598,13 +631,29 @@ async function byokGenerate(params: {
   const apiKey = await getApiKey(settings.provider.name);
 
   // Build system message with voice profile context
-  let system = params.systemPrompt || "You are a helpful writing assistant. Match the user's voice and style.";
+  let system: string;
 
-  // Inject voice profile if available (skip for "fix" — purely mechanical correction)
-  if (params.quickAction !== "fix") {
+  if (params.quickAction === "rewrite") {
+    // Rewrite: full profile for voice-specific rules (anti-patterns like em dashes),
+    // but prompt constrains the model to fix+clarity, not restyle.
+    system = "You are this person. Your voice profile is below.";
     const voiceProfile = await getVoiceProfileText(params.format);
-    if (voiceProfile) {
-      system += `\n\n[Voice Profile — write in this style]:\n${voiceProfile}`;
+    if (voiceProfile) system += `\n\n${voiceProfile}`;
+    system += "\n\nYou are editing your own draft. Fix errors and make targeted improvements. Do not lose your voice. If a sentence works, leave it alone.";
+  } else if (params.quickAction === "reply") {
+    // Reply: identity framing, full profile, minimal short-form constraints.
+    system = "You are this person. Your voice profile is below.";
+    const voiceProfile = await getVoiceProfileText(params.format);
+    if (voiceProfile) system += `\n\n${voiceProfile}`;
+    system += "\n\nDo not copy example quotes from the profile. Do not use the anti-pattern words listed in the profile. Write a reply. No title or headers.";
+  } else {
+    system = params.systemPrompt || "You are a helpful writing assistant. Match the user's voice and style.";
+    // Inject voice profile if available (skip for "fix" — purely mechanical correction)
+    if (params.quickAction !== "fix") {
+      const voiceProfile = await getVoiceProfileText(params.format);
+      if (voiceProfile) {
+        system += `\n\n[Voice Profile — write in this style]:\n${voiceProfile}`;
+      }
     }
   }
 
@@ -876,6 +925,7 @@ export async function* generateStream(params: {
   context?: string;
   attachments?: string[];
   quickAction?: string;
+  signal?: AbortSignal;
 }): AsyncGenerator<StreamEvent> {
   const settings = await getSettings();
 
@@ -885,8 +935,14 @@ export async function* generateStream(params: {
     return;
   }
 
+  const internalController = new AbortController();
+  if (params.signal) {
+    params.signal.addEventListener("abort", () => internalController.abort(params.signal!.reason), { once: true });
+  }
+
   const res = await apiFetch("/generate/", {
     method: "POST",
+    signal: internalController.signal,
     body: JSON.stringify({
       prompt: params.prompt,
       format: params.format,
@@ -911,37 +967,45 @@ export async function* generateStream(params: {
     return;
   }
 
+  const { read, cleanup } = createStallProtectedReader(reader, internalController);
   const decoder = new TextDecoder();
   let buffer = "";
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      const { done, value } = await read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n\n");
-    buffer = lines.pop() || "";
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n\n");
+      buffer = lines.pop() || "";
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed.startsWith("data: ")) continue;
-      try {
-        const event = JSON.parse(trimmed.slice(6)) as StreamEvent;
-        yield event;
-      } catch {
-        // Skip malformed events
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data: ")) continue;
+        try {
+          const event = JSON.parse(trimmed.slice(6)) as StreamEvent;
+          yield event;
+        } catch {
+          // Skip malformed events
+        }
       }
     }
-  }
 
-  // Process remaining buffer
-  if (buffer.trim().startsWith("data: ")) {
-    try {
-      const event = JSON.parse(buffer.trim().slice(6)) as StreamEvent;
-      yield event;
-    } catch {
-      // Skip
+    // Process remaining buffer
+    if (buffer.trim().startsWith("data: ")) {
+      try {
+        const event = JSON.parse(buffer.trim().slice(6)) as StreamEvent;
+        yield event;
+      } catch {
+        // Skip
+      }
     }
+  } catch {
+    if (internalController.signal.reason === "User cancelled") return;
+    yield { type: "error", message: "Connection lost. Please try again." };
+  } finally {
+    cleanup();
   }
 }
 
@@ -1085,7 +1149,7 @@ function buildRepurposeSystemPrompt(
   sourceFormat: string,
   targetFormat: string,
 ): string {
-  let prompt = `You are going to write as a specific person. Their voice profile is below.\n\n${coreIdentity}`;
+  let prompt = `You are this person. Your voice profile is below.\n\n${coreIdentity}`;
   if (contextLayer) {
     prompt += `\n\n${contextLayer}`;
   }
@@ -1631,10 +1695,58 @@ export async function fetchAnnouncements(since?: string): Promise<Announcement[]
 // ============================================================
 
 export async function logEdit(format: string, original: string, edited: string): Promise<void> {
+  const entry = {
+    ts: new Date().toISOString(),
+    ctx: format,
+    orig: original,
+    edit: edited,
+    app: "noren-ext",
+  };
+
+  // Try server upload first (Pro users). Fire-and-forget.
+  const token = await getAuthToken();
+  if (token) {
+    try {
+      await apiJson("/profile/upload-edits", {
+        method: "POST",
+        body: JSON.stringify({ entries: [entry] }),
+      });
+      // Also flush any locally queued edits from previous offline sessions
+      await _flushLocalEditQueue();
+      return;
+    } catch {
+      // Server upload failed (offline, 401, etc.). Fall through to local storage.
+    }
+  }
+
+  // Fallback: store locally for later upload
   const result = await chrome.storage.local.get("edit_log");
   const log: EditLogEntry[] = result.edit_log || [];
   log.push({ format, original, edited, app: "noren-ext", timestamp: Date.now() });
   await chrome.storage.local.set({ edit_log: log });
+}
+
+async function _flushLocalEditQueue(): Promise<void> {
+  const result = await chrome.storage.local.get("edit_log");
+  const log: EditLogEntry[] = result.edit_log || [];
+  if (log.length === 0) return;
+  // Convert local format to server format
+  const entries = log.map(e => ({
+    ts: new Date(e.timestamp).toISOString(),
+    ctx: e.format,
+    orig: e.original,
+    edit: e.edited,
+    app: e.app,
+  }));
+  try {
+    await apiJson("/profile/upload-edits", {
+      method: "POST",
+      body: JSON.stringify({ entries }),
+    });
+    await chrome.storage.local.remove("edit_log");
+  } catch {
+    // Will retry next time
+  }
 }
 
 export async function getEditLogCount(): Promise<number> {
@@ -1643,15 +1755,28 @@ export async function getEditLogCount(): Promise<number> {
   return log.length;
 }
 
-export async function uploadEditLog(): Promise<void> {
+export async function uploadEditLog(externalSamples?: { text: string; format: string; added_at: string }[]): Promise<void> {
   const result = await chrome.storage.local.get("edit_log");
   const log: EditLogEntry[] = result.edit_log || [];
-  if (log.length === 0) return;
+
+  const entries = log.map(e => ({
+    ts: new Date(e.timestamp).toISOString(),
+    ctx: e.format,
+    orig: e.original,
+    edit: e.edited,
+    app: e.app,
+  }));
+
+  const body: Record<string, unknown> = {};
+  if (entries.length > 0) body.entries = entries;
+  if (externalSamples && externalSamples.length > 0) body.external_samples = externalSamples;
+  if (Object.keys(body).length === 0) return;
+
   await apiJson("/profile/upload-edits", {
     method: "POST",
-    body: JSON.stringify({ edits: log }),
+    body: JSON.stringify(body),
   });
-  await chrome.storage.local.remove("edit_log");
+  if (entries.length > 0) await chrome.storage.local.remove("edit_log");
 }
 
 // ============================================================
@@ -1734,17 +1859,31 @@ async function* byokGenerateStream(params: {
   context?: string;
   attachments?: string[];
   quickAction?: string;
+  signal?: AbortSignal;
 }): AsyncGenerator<StreamEvent> {
   const settings = await getSettings();
   const apiKey = await getApiKey(settings.provider.name);
 
   // Build system message (same logic as byokGenerate)
-  let system = "You are a helpful writing assistant. Match the user's voice and style.";
+  let system: string;
 
-  if (params.quickAction !== "fix") {
+  if (params.quickAction === "rewrite") {
+    system = "You are this person. Your voice profile is below.";
     const voiceProfile = await getVoiceProfileText(params.format);
-    if (voiceProfile) {
-      system += `\n\n[Voice Profile — write in this style]:\n${voiceProfile}`;
+    if (voiceProfile) system += `\n\n${voiceProfile}`;
+    system += "\n\nYou are editing your own draft. Fix errors and make targeted improvements. Do not lose your voice. If a sentence works, leave it alone.";
+  } else if (params.quickAction === "reply") {
+    system = "You are this person. Your voice profile is below.";
+    const voiceProfile = await getVoiceProfileText(params.format);
+    if (voiceProfile) system += `\n\n${voiceProfile}`;
+    system += "\n\nDo not copy example quotes from the profile. Do not use the anti-pattern words listed in the profile. Write a reply. No title or headers.";
+  } else {
+    system = "You are a helpful writing assistant. Match the user's voice and style.";
+    if (params.quickAction !== "fix") {
+      const voiceProfile = await getVoiceProfileText(params.format);
+      if (voiceProfile) {
+        system += `\n\n[Voice Profile — write in this style]:\n${voiceProfile}`;
+      }
     }
   }
 
@@ -1767,14 +1906,14 @@ async function* byokGenerateStream(params: {
   if (params.quickAction && settings.provider.type === "anthropic") {
     const model = params.quickAction === "fix" ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-6";
     const provider = { ...settings.provider, model };
-    yield* streamByokAnthropic(provider, apiKey, system, userContent, true);
+    yield* streamByokAnthropic(provider, apiKey, system, userContent, true, params.signal);
     return;
   }
 
   if (settings.provider.type === "anthropic") {
-    yield* streamByokAnthropic(settings.provider, apiKey, system, userContent);
+    yield* streamByokAnthropic(settings.provider, apiKey, system, userContent, false, params.signal);
   } else {
-    yield* streamByokOpenAI(settings.provider, apiKey, system, userContent);
+    yield* streamByokOpenAI(settings.provider, apiKey, system, userContent, params.signal);
   }
 }
 
@@ -1784,9 +1923,16 @@ async function* streamByokAnthropic(
   system: string,
   userContent: string,
   skipThinking = false,
+  signal?: AbortSignal,
 ): AsyncGenerator<StreamEvent> {
   const thinking = skipThinking ? { enabled: false, budget: 0 } : await getThinkingSettings();
   const isClaudeToken = provider.name === "claude-token";
+
+  const internalController = new AbortController();
+  if (signal) {
+    signal.addEventListener("abort", () => internalController.abort(signal.reason), { once: true });
+  }
+
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "anthropic-version": "2023-06-01",
@@ -1813,11 +1959,9 @@ async function* streamByokAnthropic(
   }
 
   const doFetch = isClaudeToken ? bgFetch : fetch;
-  const res = await doFetch(`${provider.baseUrl}/v1/messages`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
+  const fetchInit: RequestInit = { method: "POST", headers, body: JSON.stringify(body) };
+  if (!isClaudeToken) fetchInit.signal = internalController.signal;
+  const res = await doFetch(`${provider.baseUrl}/v1/messages`, fetchInit);
 
   if (!res.ok) {
     const text = await res.text();
@@ -1831,42 +1975,50 @@ async function* streamByokAnthropic(
     return;
   }
 
+  const { read, cleanup } = createStallProtectedReader(reader, internalController);
   const decoder = new TextDecoder();
   let buffer = "";
   let fullContent = "";
   let inputTokens = 0;
   let outputTokens = 0;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      const { done, value } = await read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
 
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      const json = line.slice(6).trim();
-      if (!json || json === "[DONE]") continue;
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const json = line.slice(6).trim();
+        if (!json || json === "[DONE]") continue;
 
-      try {
-        const event = JSON.parse(json);
-        if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
-          fullContent += event.delta.text;
-          yield { type: "delta", text: event.delta.text };
-        } else if (event.type === "message_delta" && event.usage) {
-          outputTokens = event.usage.output_tokens || 0;
-        } else if (event.type === "message_start" && event.message?.usage) {
-          inputTokens = event.message.usage.input_tokens || 0;
+        try {
+          const event = JSON.parse(json);
+          if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
+            fullContent += event.delta.text;
+            yield { type: "delta", text: event.delta.text };
+          } else if (event.type === "message_delta" && event.usage) {
+            outputTokens = event.usage.output_tokens || 0;
+          } else if (event.type === "message_start" && event.message?.usage) {
+            inputTokens = event.message.usage.input_tokens || 0;
+          }
+        } catch {
+          // Skip malformed JSON
         }
-      } catch {
-        // Skip malformed JSON
       }
     }
-  }
 
-  yield { type: "done", content: fullContent, input_tokens: inputTokens, output_tokens: outputTokens, model: "byok" };
+    yield { type: "done", content: fullContent, input_tokens: inputTokens, output_tokens: outputTokens, model: "byok" };
+  } catch {
+    if (internalController.signal.reason === "User cancelled") return;
+    yield { type: "error", message: "Connection lost. Please try again." };
+  } finally {
+    cleanup();
+  }
 }
 
 async function* streamByokOpenAI(
@@ -1874,13 +2026,19 @@ async function* streamByokOpenAI(
   apiKey: string | null,
   system: string,
   userContent: string,
+  signal?: AbortSignal,
 ): AsyncGenerator<StreamEvent> {
+  const internalController = new AbortController();
+  if (signal) {
+    signal.addEventListener("abort", () => internalController.abort(signal.reason), { once: true });
+  }
+
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
 
   const isCustom = provider.name === "custom";
   const doFetch = isCustom ? bgFetch : fetch;
-  const res = await doFetch(`${provider.baseUrl}/chat/completions`, {
+  const fetchInit: RequestInit = {
     method: "POST",
     headers,
     body: JSON.stringify({
@@ -1892,7 +2050,9 @@ async function* streamByokOpenAI(
         { role: "user", content: userContent },
       ],
     }),
-  });
+  };
+  if (!isCustom) fetchInit.signal = internalController.signal;
+  const res = await doFetch(`${provider.baseUrl}/chat/completions`, fetchInit);
 
   if (!res.ok) {
     const text = await res.text();
@@ -1906,35 +2066,43 @@ async function* streamByokOpenAI(
     return;
   }
 
+  const { read, cleanup } = createStallProtectedReader(reader, internalController);
   const decoder = new TextDecoder();
   let buffer = "";
   let fullContent = "";
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      const { done, value } = await read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
 
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      const json = line.slice(6).trim();
-      if (!json || json === "[DONE]") continue;
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const json = line.slice(6).trim();
+        if (!json || json === "[DONE]") continue;
 
-      try {
-        const event = JSON.parse(json);
-        const delta = event.choices?.[0]?.delta?.content;
-        if (delta) {
-          fullContent += delta;
-          yield { type: "delta", text: delta };
+        try {
+          const event = JSON.parse(json);
+          const delta = event.choices?.[0]?.delta?.content;
+          if (delta) {
+            fullContent += delta;
+            yield { type: "delta", text: delta };
+          }
+        } catch {
+          // Skip malformed JSON
         }
-      } catch {
-        // Skip malformed JSON
       }
     }
-  }
 
-  yield { type: "done", content: fullContent, input_tokens: 0, output_tokens: 0, model: "byok" };
+    yield { type: "done", content: fullContent, input_tokens: 0, output_tokens: 0, model: "byok" };
+  } catch {
+    if (internalController.signal.reason === "User cancelled") return;
+    yield { type: "error", message: "Connection lost. Please try again." };
+  } finally {
+    cleanup();
+  }
 }

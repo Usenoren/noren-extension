@@ -286,14 +286,16 @@ chrome.storage.onChanged.addListener((changes) => {
   }
 });
 
-// Use capture phase so page scripts can't swallow the event with stopPropagation
-document.addEventListener("mouseup", (e) => {
+// Listen on window (not document) in capture phase. This fires before any
+// document-level capture listeners that sites like Reddit may register with
+// stopImmediatePropagation, which would block later document listeners.
+window.addEventListener("mouseup", (e) => {
   // Ignore clicks on our own toolbar
   if (toolbarMount && e.composedPath().includes(toolbarMount.host)) return;
   // Don't interfere while a quick action is running
   if (processingAction) return;
 
-  // Small delay for selection to finalize
+  // Small delay for selection to finalize (some SPAs update DOM async after mouseup)
   setTimeout(() => {
     if (processingAction) return;
 
@@ -320,7 +322,7 @@ document.addEventListener("mouseup", (e) => {
   }, 10);
 }, true);
 
-document.addEventListener("mousedown", (e) => {
+window.addEventListener("mousedown", (e) => {
   if (!toolbarMount) return;
   if (processingAction) return;
   const path = e.composedPath();
@@ -329,7 +331,7 @@ document.addEventListener("mousedown", (e) => {
   }
 }, true);
 
-document.addEventListener("keydown", (e) => {
+window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") dismissToolbar();
 }, true);
 
@@ -438,15 +440,17 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
       targetEl.value = targetEl.value.slice(0, start) + targetEl.value.slice(end);
       targetEl.selectionStart = targetEl.selectionEnd = start;
     } else if (targetEl.getAttribute("contenteditable") === "true") {
-      // Restore selection from saved state if the browser lost it
-      // (e.g. clicking the toolbar button shifted focus away)
-      const sel = window.getSelection();
-      if (!sel || sel.isCollapsed) {
-        if (savedEditableSelection && savedEditableSelection.el === targetEl && savedEditableSelection.text) {
-          findAndSelectText(targetEl, savedEditableSelection.text);
+      if (!isFrameworkEditor(targetEl)) {
+        // Plain contenteditable: delete selected text so streaming fills the gap
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed) {
+          if (savedEditableSelection && savedEditableSelection.el === targetEl && savedEditableSelection.text) {
+            findAndSelectText(targetEl, savedEditableSelection.text);
+          }
         }
+        document.execCommand("delete");
       }
-      document.execCommand("delete");
+      // Framework editors: skip delete, will replace via paste on completion
     }
   }
 
@@ -459,6 +463,7 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
     (targetEl instanceof HTMLTextAreaElement || targetEl instanceof HTMLInputElement);
   const isContentEditable = streamIntoField && targetEl &&
     !isTextarea && targetEl.getAttribute("contenteditable") === "true";
+  const isFramework = isContentEditable && isFrameworkEditor(targetEl!);
 
   port.onMessage.addListener((event) => {
     if (event.type === "delta") {
@@ -466,7 +471,7 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
       if (isTextarea && targetEl) {
         // textarea/input: stream chunks directly, cursor tracked
         appendToField(targetEl, event.text);
-      } else if (isContentEditable && targetEl) {
+      } else if (isContentEditable && !isFramework && targetEl) {
         // contenteditable: stream chunks with paragraph breaks preserved.
         // execCommand("insertText") swallows \n in per-chunk calls,
         // so we split on newlines and use insertParagraph for double breaks.
@@ -491,9 +496,36 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
       finalContent = event.content || streamedText;
       port.disconnect();
       dismissToolbar();
+      if (action === "rewrite") showRewriteHint();
 
-      if (isContentEditable) {
-        // Already streamed in via execCommand during deltas
+      if (isContentEditable && targetEl) {
+        if (isFramework) {
+          // Framework editors (Draft.js, Lexical, Quill): replace original
+          // text with final content via paste so the framework's internal
+          // state stays in sync with the DOM.
+          targetEl.focus();
+          // `text` (function param) is the original selection captured at
+          // toolbar creation — stable, unlike savedEditableSelection which
+          // can be overwritten by user clicks during loading.
+          if (findAndSelectText(targetEl, text)) {
+            const dt = new DataTransfer();
+            dt.setData("text/plain", finalContent);
+            targetEl.dispatchEvent(new ClipboardEvent("paste", {
+              clipboardData: dt,
+              bubbles: true,
+              cancelable: true,
+            }));
+          } else {
+            // Original text not found in DOM (framework re-rendered).
+            // Copy to clipboard instead of pasting at an arbitrary position.
+            navigator.clipboard.writeText(finalContent).then(() => {
+              showCopiedNotification();
+            });
+          }
+        } else {
+          // Plain contenteditable: text already streamed, restore focus
+          targetEl.focus();
+        }
       } else if (isTextarea) {
         // textarea/input: text already streamed in
       } else {
@@ -624,6 +656,53 @@ function showErrorNotification(error: string) {
     el.remove();
     style.remove();
   }, 3100);
+}
+
+async function showRewriteHint() {
+  const data = await chrome.storage.local.get("rewrite_hint_count");
+  const count = data.rewrite_hint_count || 0;
+  if (count >= 3) return;
+  await chrome.storage.local.set({ rewrite_hint_count: count + 1 });
+
+  // Small delay so it doesn't compete with the streaming finish
+  setTimeout(() => {
+    const el = document.createElement("noren-notification");
+    el.style.cssText = `
+      all: initial;
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 2147483647;
+      padding: 8px 14px;
+      background: #2A2A2A;
+      color: #9A9A9A;
+      font-family: -apple-system, system-ui, sans-serif;
+      font-size: 12px;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+      animation: noren-hint 5s ease-out forwards;
+      pointer-events: none;
+    `;
+    el.textContent = "Tip: add instructions after your text, like \"expand this\" or \"tighten\"";
+
+    const style = document.createElement("style");
+    style.textContent = `
+      @keyframes noren-hint {
+        0% { opacity: 0; transform: translateX(-50%) translateY(8px); }
+        8% { opacity: 1; transform: translateX(-50%) translateY(0); }
+        80% { opacity: 1; }
+        100% { opacity: 0; }
+      }
+    `;
+    document.head.appendChild(style);
+    document.body.appendChild(el);
+
+    setTimeout(() => {
+      el.remove();
+      style.remove();
+    }, 5100);
+  }, 800);
 }
 
 function showCopiedNotification() {

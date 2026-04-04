@@ -82,12 +82,12 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
 const QUICK_ACTION_PROMPTS: Record<string, (text: string, ctx?: string | null, intent?: string | null, format?: string | null) => string> = {
   rewrite: (text, ctx) => {
-    let prompt = `Rewrite this in my voice. Change how it's said, not what it says. Preserve the meaning and structure. Follow the voice profile closely: use its word preferences, sentence patterns, and rhetorical moves. Return only the rewritten text.`;
+    let prompt = `Edit this draft. Fix errors and make targeted improvements. Do not restyle. Return only the edited text.`;
     if (ctx) prompt += `\n\nSurrounding context (do not include in output, use for coherence only):\n${ctx}`;
     return `${prompt}\n\n${text}`;
   },
   reply: (text, ctx, intent, format) => {
-    let prompt = `Engage with this post in my voice. Follow the voice profile closely: use its word preferences, sentence patterns, and rhetorical moves. Your reply should be shorter than the post you're replying to. Return only the reply.`;
+    let prompt = `Reply to this post in my voice. Keep it short. Return only the reply.`;
     if (intent) prompt += `\n\nDirection (use as the angle, do not repeat verbatim): ${intent}`;
     if (ctx) prompt += `\n\nSurrounding context:\n${ctx}`;
     return `${prompt}\n\nPost to engage with:\n${text}`;
@@ -133,6 +133,8 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onMessage.addListener(async (message) => {
     const { action, text, detectedFormat, surroundingContext, intent } = message;
     const promptFn = QUICK_ACTION_PROMPTS[action] || QUICK_ACTION_PROMPTS.rewrite;
+    const controller = new AbortController();
+    port.onDisconnect.addListener(() => controller.abort("User cancelled"));
 
     try {
       const stream = generateStream({
@@ -140,7 +142,8 @@ chrome.runtime.onConnect.addListener((port) => {
         format: action !== "fix" ? (detectedFormat || "general") : "general",
         level: "guided",
         quickAction: action,
-        mode: action === "rewrite" ? "adapt" : "generate",
+        mode: "generate",
+        signal: controller.signal,
       });
 
       for await (const event of stream) {
