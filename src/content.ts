@@ -315,11 +315,18 @@ function handleSelectionCheck() {
     // Zero-rect guard: canvas editors (Google Docs) return 0x0
     if (rect.width === 0 && rect.height === 0) return;
 
-    // Above by default. Flip below if:
-    // 1. Not enough viewport space above (toolbar ~40px + 8px gap), or
-    // 2. Inside an editable field (native formatting toolbars appear above)
-    const below = rect.top < 50 || isInsideEditable(selection!.anchorNode);
-    showToolbar(rect.left + rect.width / 2, below ? rect.bottom : rect.top, text, below);
+    // Clamp to visible portion of selection (handles Cmd+A on long pages
+    // where rect extends thousands of pixels beyond viewport)
+    const visibleTop = Math.max(8, rect.top);
+    const visibleBottom = Math.min(window.innerHeight - 8, rect.bottom);
+
+    // Position: above by default. Below if not enough space above or inside
+    // an editable (avoids native formatting toolbar). But never below if
+    // that would push the toolbar off the viewport bottom.
+    const noRoomAbove = visibleTop < 50;
+    const noRoomBelow = visibleBottom > window.innerHeight - 50;
+    const below = noRoomAbove || (isInsideEditable(selection!.anchorNode) && !noRoomBelow);
+    showToolbar(rect.left + rect.width / 2, below ? visibleBottom : visibleTop, text, below);
   } catch {
     // getRangeAt can throw if selection is in an inaccessible context
   }
