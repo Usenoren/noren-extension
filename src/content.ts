@@ -286,43 +286,59 @@ chrome.storage.onChanged.addListener((changes) => {
   }
 });
 
-// Listen on window (not document) in capture phase. This fires before any
-// document-level capture listeners that sites like Reddit may register with
-// stopImmediatePropagation, which would block later document listeners.
-window.addEventListener("mouseup", (e) => {
-  // Ignore clicks on our own toolbar
-  if (toolbarMount && e.composedPath().includes(toolbarMount.host)) return;
-  // Don't interfere while a quick action is running
+// --- Selection detection ---
+// Primary: mouseup (immediate, 10ms delay for SPA finalization)
+// Fallback: selectionchange (250ms debounce, catches keyboard selection
+// and sites that block mouseup via stopImmediatePropagation)
+
+let mouseupHandledSelection = false;
+let selectionChangeTimer: ReturnType<typeof setTimeout> | undefined;
+
+function handleSelectionCheck() {
   if (processingAction) return;
 
-  // Small delay for selection to finalize (some SPAs update DOM async after mouseup)
-  setTimeout(() => {
-    if (processingAction) return;
+  const selection = window.getSelection();
+  const text = selection?.toString().trim();
 
-    const selection = window.getSelection();
-    const text = selection?.toString().trim();
+  if (!text || text.length < 3) {
+    dismissToolbar();
+    return;
+  }
 
-    if (!text || text.length < 3) {
-      dismissToolbar();
-      return;
-    }
+  // Don't show if selection is inside our own shadow DOM
+  const anchor = selection?.anchorNode;
+  if (anchor && isInsideNorenUI(anchor)) return;
 
-    // Don't show if selection is inside our own shadow DOM
-    const anchor = selection?.anchorNode;
-    if (anchor && isInsideNorenUI(anchor)) return;
-
+  try {
     const range = selection!.getRangeAt(0);
     const rect = range.getBoundingClientRect();
+    // Zero-rect guard: canvas editors (Google Docs) return 0x0
+    if (rect.width === 0 && rect.height === 0) return;
 
     // Above by default. Flip below if:
     // 1. Not enough viewport space above (toolbar ~40px + 8px gap), or
     // 2. Inside an editable field (native formatting toolbars appear above)
     const below = rect.top < 50 || isInsideEditable(selection!.anchorNode);
     showToolbar(rect.left + rect.width / 2, below ? rect.bottom : rect.top, text, below);
-  }, 10);
+  } catch {
+    // getRangeAt can throw if selection is in an inaccessible context
+  }
+}
+
+// Primary: window capture mouseup
+window.addEventListener("mouseup", (e) => {
+  if (toolbarMount && e.composedPath().includes(toolbarMount.host)) return;
+  if (processingAction) return;
+
+  mouseupHandledSelection = true;
+  setTimeout(() => handleSelectionCheck(), 10);
+  // Auto-reset after selectionchange debounce window (250ms) so future
+  // keyboard selections aren't blocked by a stale flag
+  setTimeout(() => { mouseupHandledSelection = false; }, 300);
 }, true);
 
 window.addEventListener("mousedown", (e) => {
+  mouseupHandledSelection = false;
   if (!toolbarMount) return;
   if (processingAction) return;
   const path = e.composedPath();
@@ -334,6 +350,22 @@ window.addEventListener("mousedown", (e) => {
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") dismissToolbar();
 }, true);
+
+// Fallback: selectionchange (keyboard selection, blocked mouseup)
+document.addEventListener("selectionchange", () => {
+  if (processingAction) return;
+  clearTimeout(selectionChangeTimer);
+  selectionChangeTimer = setTimeout(() => {
+    if (mouseupHandledSelection) return;
+    const text = window.getSelection()?.toString().trim();
+    if (!text || text.length < 3) {
+      // Selection cleared (click, Cmd+A then click away, etc.)
+      if (toolbarMount) dismissToolbar();
+      return;
+    }
+    handleSelectionCheck();
+  }, 250);
+});
 
 function isInsideEditable(node: Node | null): boolean {
   let current: Node | null = node;
@@ -387,6 +419,7 @@ function dismissToolbar() {
     toolbarMount = null;
   }
   processingAction = false;
+  clearTimeout(selectionChangeTimer);
 }
 
 async function handleQuickAction(action: string, text: string, intent?: string) {
