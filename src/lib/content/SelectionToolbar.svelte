@@ -8,6 +8,7 @@
   } = $props();
 
   let replyMode = $state(false);
+  let rewriteMode = $state(false);
   let intentText = $state("");
   let inputEl: HTMLInputElement;
 
@@ -21,6 +22,9 @@
     if (id === "reply") {
       replyMode = true;
       setTimeout(() => inputEl?.focus(), 0);
+    } else if (id === "rewrite") {
+      rewriteMode = true;
+      setTimeout(() => inputEl?.focus(), 0);
     } else {
       onAction(id);
     }
@@ -30,13 +34,24 @@
     onAction("reply", intentText.trim() || undefined);
   }
 
+  function submitRewrite() {
+    onAction("rewrite", intentText.trim() || undefined);
+  }
+
   function handleKeydown(e: KeyboardEvent) {
+    // Stop the keystroke from escaping the shadow DOM and triggering the
+    // host page's keyboard shortcuts (Twitter "s", Gmail "o", etc). The
+    // input still receives the key normally because we're not preventing
+    // its default action — we're just preventing bubble-out.
+    e.stopPropagation();
     if (e.key === "Enter") {
       e.preventDefault();
-      submitReply();
+      if (rewriteMode) submitRewrite();
+      else if (replyMode) submitReply();
     } else if (e.key === "Escape") {
       e.preventDefault();
       replyMode = false;
+      rewriteMode = false;
       intentText = "";
     }
   }
@@ -45,7 +60,7 @@
 <div
   class="noren-toolbar"
   class:noren-below={below}
-  class:noren-reply-mode={replyMode}
+  class:noren-reply-mode={replyMode || rewriteMode}
   class:noren-loading-mode={loading}
   style="left: {x}px; top: {y}px;"
 >
@@ -65,7 +80,32 @@
         placeholder="agree, but..."
         onkeydown={handleKeydown}
       />
-      <button class="noren-reply-send" onclick={submitReply}>
+      <button
+        class="noren-reply-send"
+        onmousedown={(e) => e.preventDefault()}
+        onclick={submitReply}
+      >
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 8h10M9 4l4 4-4 4"/>
+        </svg>
+      </button>
+    </div>
+  {:else if rewriteMode}
+    <div class="noren-reply-container noren-morph-enter">
+      <span class="noren-reply-label">Rewrite</span>
+      <div class="noren-reply-divider"></div>
+      <input
+        bind:this={inputEl}
+        bind:value={intentText}
+        class="noren-reply-input"
+        placeholder="expand, tighten..."
+        onkeydown={handleKeydown}
+      />
+      <button
+        class="noren-reply-send"
+        onmousedown={(e) => e.preventDefault()}
+        onclick={submitRewrite}
+      >
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M3 8h10M9 4l4 4-4 4"/>
         </svg>
@@ -75,6 +115,7 @@
     {#each actions as action}
       <button
         class="noren-action"
+        onmousedown={(e) => e.preventDefault()}
         onclick={() => handleAction(action.id)}
       >
         {action.label}

@@ -361,9 +361,15 @@ window.addEventListener("keydown", (e) => {
 // Fallback: selectionchange (keyboard selection, blocked mouseup)
 document.addEventListener("selectionchange", () => {
   if (processingAction) return;
+  // Don't refresh/dismiss while the user is interacting with the toolbar
+  // (e.g., typing intent in reply mode). Shadow DOM retargets focus from
+  // the inner input to the toolbar host element.
+  if (toolbarMount && document.activeElement === toolbarMount.host) return;
   clearTimeout(selectionChangeTimer);
   selectionChangeTimer = setTimeout(() => {
+    if (processingAction) return;
     if (mouseupHandledSelection) return;
+    if (toolbarMount && document.activeElement === toolbarMount.host) return;
     const text = window.getSelection()?.toString().trim();
     if (!text || text.length < 3) {
       // Selection cleared (click, Cmd+A then click away, etc.)
@@ -536,18 +542,14 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
       finalContent = event.content || streamedText;
       port.disconnect();
       dismissToolbar();
-      if (action === "rewrite") showRewriteHint();
 
       if (isContentEditable && targetEl) {
         if (isFramework) {
-          // Framework editors (Draft.js, Lexical, Quill): replace original
-          // text with final content via paste so the framework's internal
-          // state stays in sync with the DOM.
           targetEl.focus();
-          // `text` (function param) is the original selection captured at
-          // toolbar creation — stable, unlike savedEditableSelection which
-          // can be overwritten by user clicks during loading.
-          if (findAndSelectText(targetEl, text)) {
+          if (action === "reply") {
+            // Reply: insert at cursor in the compose box. The source text
+            // (`text`) is what's being replied TO; it does not exist in the
+            // target editor and must not be searched for.
             const dt = new DataTransfer();
             dt.setData("text/plain", finalContent);
             targetEl.dispatchEvent(new ClipboardEvent("paste", {
@@ -556,11 +558,24 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
               cancelable: true,
             }));
           } else {
-            // Original text not found in DOM (framework re-rendered).
-            // Copy to clipboard instead of pasting at an arbitrary position.
-            navigator.clipboard.writeText(finalContent).then(() => {
-              showCopiedNotification();
-            });
+            // Rewrite/Fix: replace the original selected text via find-and-paste
+            // so the framework's internal state stays in sync with the DOM.
+            // `text` (function param) is the original selection captured at
+            // toolbar creation — stable, unlike savedEditableSelection which
+            // can be overwritten by user clicks during loading.
+            if (findAndSelectText(targetEl, text)) {
+              const dt = new DataTransfer();
+              dt.setData("text/plain", finalContent);
+              targetEl.dispatchEvent(new ClipboardEvent("paste", {
+                clipboardData: dt,
+                bubbles: true,
+                cancelable: true,
+              }));
+            } else {
+              // Original text not found in DOM (framework re-rendered).
+              // Copy to clipboard instead of pasting at an arbitrary position.
+              safeCopy(finalContent);
+            }
           }
         } else {
           // Plain contenteditable: text already streamed, restore focus
@@ -574,9 +589,7 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
         if (lateTarget) {
           injectText(finalContent);
         } else {
-          navigator.clipboard.writeText(finalContent).then(() => {
-            showCopiedNotification();
-          });
+          safeCopy(finalContent);
         }
       }
     } else if (event.type === "error") {
@@ -614,6 +627,9 @@ function isFrameworkEditor(el: HTMLElement | null): boolean {
   if (el.closest("[data-lexical-editor]")) return true;
   // LinkedIn's editor
   if (el.closest(".ql-editor")) return true;
+  // Reddit's web component composer
+  if (el.closest("shreddit-composer")) return true;
+  if (el.closest("faceplate-textarea")) return true;
   return false;
 }
 
@@ -626,7 +642,42 @@ function getEditableTarget(): HTMLElement | null {
   ) {
     return el;
   }
-  return lastFocusedEditable;
+  if (lastFocusedEditable && lastFocusedEditable.isConnected) {
+    return lastFocusedEditable;
+  }
+  return null;
+}
+
+// Robust clipboard copy with legacy execCommand fallback for cases where
+// navigator.clipboard.writeText rejects (e.g. document not focused, permission
+// denied). Always surfaces success or failure to the user via a notification.
+function safeCopy(text: string) {
+  const legacy = () => {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0;";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  };
+
+  navigator.clipboard.writeText(text)
+    .then(() => showCopiedNotification())
+    .catch(() => {
+      if (legacy()) {
+        showCopiedNotification();
+      } else {
+        console.error("[Noren] Failed to copy to clipboard:", text.slice(0, 100));
+        showErrorNotification("Couldn't copy to clipboard");
+      }
+    });
 }
 
 function appendToField(el: HTMLElement, text: string) {
@@ -696,53 +747,6 @@ function showErrorNotification(error: string) {
     el.remove();
     style.remove();
   }, 3100);
-}
-
-async function showRewriteHint() {
-  const data = await chrome.storage.local.get("rewrite_hint_count");
-  const count = data.rewrite_hint_count || 0;
-  if (count >= 3) return;
-  await chrome.storage.local.set({ rewrite_hint_count: count + 1 });
-
-  // Small delay so it doesn't compete with the streaming finish
-  setTimeout(() => {
-    const el = document.createElement("noren-notification");
-    el.style.cssText = `
-      all: initial;
-      position: fixed;
-      bottom: 24px;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 2147483647;
-      padding: 8px 14px;
-      background: #2A2A2A;
-      color: #9A9A9A;
-      font-family: -apple-system, system-ui, sans-serif;
-      font-size: 12px;
-      border-radius: 8px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
-      animation: noren-hint 5s ease-out forwards;
-      pointer-events: none;
-    `;
-    el.textContent = "Tip: add instructions after your text, like \"expand this\" or \"tighten\"";
-
-    const style = document.createElement("style");
-    style.textContent = `
-      @keyframes noren-hint {
-        0% { opacity: 0; transform: translateX(-50%) translateY(8px); }
-        8% { opacity: 1; transform: translateX(-50%) translateY(0); }
-        80% { opacity: 1; }
-        100% { opacity: 0; }
-      }
-    `;
-    document.head.appendChild(style);
-    document.body.appendChild(el);
-
-    setTimeout(() => {
-      el.remove();
-      style.remove();
-    }, 5100);
-  }, 800);
 }
 
 function showCopiedNotification() {

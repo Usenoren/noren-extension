@@ -81,8 +81,10 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 // No per-platform length map. The reply prompt handles length naturally.
 
 const QUICK_ACTION_PROMPTS: Record<string, (text: string, ctx?: string | null, intent?: string | null, format?: string | null) => string> = {
-  rewrite: (text, ctx) => {
-    let prompt = `Edit this draft. Fix errors and make targeted improvements. Do not restyle. Return only the edited text.`;
+  rewrite: (text, ctx, intent) => {
+    let prompt = intent
+      ? `Apply this edit instruction to the draft below in my voice. Return only the edited text.\n\nInstruction: ${intent}`
+      : `Edit this draft. Fix errors and make targeted improvements. Do not restyle. Return only the edited text.`;
     if (ctx) prompt += `\n\nSurrounding context (do not include in output, use for coherence only):\n${ctx}`;
     return `${prompt}\n\n${text}`;
   },
