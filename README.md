@@ -47,7 +47,7 @@ Noren runs in two modes:
 | Entry Point | What It Does |
 |---|---|
 | **Side panel** | Main UI - tabbed interface with Generate, Chat, Profile, and Settings views |
-| **Selection toolbar** | Floating quick actions (Rewrite, Shorten, Expand, Fix, Tone) when you select text on any page |
+| **Selection toolbar** | Floating quick actions (Rewrite, Reply, Fix) when you select text on any page |
 | **Context menu** | Right-click selected text → "Weave with Noren" opens the side panel with context |
 | **Toolbar icon** | Click the extension icon to open the popup |
 

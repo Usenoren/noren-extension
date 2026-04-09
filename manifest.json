@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Noren",
   "version": "1.0.0",
-  "description": "AI writing that sounds like you",
+  "description": "Writing That Sounds Like You. Rewrite, reply, or fix selected text in your voice on any site.",
   "permissions": ["activeTab", "scripting", "storage", "contextMenus", "sidePanel", "declarativeNetRequest", "nativeMessaging"],
   "side_panel": {
     "default_path": "sidepanel.html"
