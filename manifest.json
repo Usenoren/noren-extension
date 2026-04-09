@@ -8,6 +8,14 @@
     "default_path": "sidepanel.html"
   },
   "host_permissions": [
+    "https://api.anthropic.com/*",
+    "https://api.openai.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.usenoren.ai/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "optional_host_permissions": [
     "<all_urls>"
   ],
   "action": {
