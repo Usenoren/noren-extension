@@ -98,3 +98,15 @@ export function friendlyError(raw: unknown): string {
 
   return cleaned;
 }
+
+export function isAuthSessionError(raw: unknown): boolean {
+  const msg = String(raw);
+  return (
+    msg.includes("Session expired") ||
+    msg.includes("Not logged in") ||
+    msg.includes("Token has been revoked") ||
+    msg.includes("Invalid or expired token") ||
+    msg.includes("Invalid or expired refresh token") ||
+    msg.includes("User not found")
+  );
+}

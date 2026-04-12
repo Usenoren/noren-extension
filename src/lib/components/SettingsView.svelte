@@ -30,7 +30,7 @@
     type SubscriptionStatus,
     isKeychainAvailable,
   } from "$lib/api/noren";
-  import { friendlyError } from "$lib/utils/errors";
+  import { friendlyError, isAuthSessionError } from "$lib/utils/errors";
   import LoadingSpinner from "./LoadingSpinner.svelte";
 
   const presets = [
@@ -162,13 +162,17 @@
             subscription = null;
           }
 
-        } catch {
-          try {
-            await norenProLogout();
-            settings = await getSettings();
-          } catch { /* ignore */ }
-          proStatus = null;
-          subscription = null;
+        } catch (e) {
+          if (isAuthSessionError(e)) {
+            try {
+              await norenProLogout();
+              settings = await getSettings();
+            } catch { /* ignore */ }
+            proStatus = null;
+            subscription = null;
+          } else {
+            error = friendlyError(e);
+          }
         }
       } else {
         proStatus = null;
@@ -273,7 +277,7 @@
     }
   }
 
-  async function handleModeSwitch(mode: string) {
+  async function handleModeSwitch(mode: "byok" | "noren_pro") {
     error = "";
     try {
       await setInferenceMode(mode);
