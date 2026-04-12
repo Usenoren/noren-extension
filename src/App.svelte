@@ -47,7 +47,7 @@
       }
       return getSettings().then(async (settings) => {
         if (
-          settings.inference_mode === "byok" &&
+          !settings.noren_pro_logged_in &&
           !settings.has_key &&
           settings.provider.requiresKey
         ) {
