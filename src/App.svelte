@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getSettings, getContextText, getProfileOverview } from "$lib/api/noren";
+  import { getSettings, getContextText, getProfileOverview, ensureAnalyticsBootstrap } from "$lib/api/noren";
   import { refresh as refreshSubscription } from "$lib/stores/subscription.svelte";
   import { syncThemeFromStorage } from "$lib/stores/theme.svelte";
   import GenerateView from "$lib/components/GenerateView.svelte";
@@ -39,6 +39,7 @@
 
   $effect(() => {
     syncThemeFromStorage();
+    ensureAnalyticsBootstrap().catch(() => {});
     chrome.storage.local.get("onboarding_complete").then(({ onboarding_complete }) => {
       if (!onboarding_complete) {
         showOnboarding = true;

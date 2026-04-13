@@ -267,6 +267,101 @@ async function clearNorenAuthState(): Promise<void> {
   await setInferenceMode("byok");
 }
 
+export type AnalyticsEventName =
+  | "generation_used";
+
+async function bootstrapInstallToken(): Promise<string | null> {
+  try {
+    const resp = await fetch(`${API_BASE}/analytics/bootstrap`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ product: "extension" }),
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const token = typeof data?.install_token === "string" ? data.install_token : null;
+    if (!token) return null;
+    await chrome.storage.local.set({ analytics_install_token: token });
+    return token;
+  } catch {
+    return null;
+  }
+}
+
+async function getInstallToken(): Promise<string | null> {
+  const data = await chrome.storage.local.get("analytics_install_token");
+  if (typeof data.analytics_install_token === "string" && data.analytics_install_token) {
+    return data.analytics_install_token;
+  }
+  return bootstrapInstallToken();
+}
+
+export async function trackAnalyticsEvent(eventName: AnalyticsEventName): Promise<void> {
+  try {
+    const settings = await getSettings();
+    const authState = settings.noren_pro_logged_in ? "signed_in" : "signed_out";
+    const inferenceMode = settings.noren_pro_logged_in ? "noren_managed" : "byok";
+    let installToken = await getInstallToken();
+    if (!installToken) return;
+
+    let resp = await fetch(`${API_BASE}/analytics/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        events: [{
+          install_token: installToken,
+          event_name: eventName,
+          product: "extension",
+          auth_state: authState,
+          inference_mode: inferenceMode,
+        }],
+      }),
+    });
+
+    if (resp.status === 400) {
+      await chrome.storage.local.remove("analytics_install_token");
+      installToken = await bootstrapInstallToken();
+      if (!installToken) return;
+      resp = await fetch(`${API_BASE}/analytics/events`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          events: [{
+            install_token: installToken,
+            event_name: eventName,
+            product: "extension",
+            auth_state: authState,
+            inference_mode: inferenceMode,
+          }],
+        }),
+      });
+    }
+
+    void resp;
+  } catch {
+    // Analytics must never block product flows.
+  }
+}
+
+export async function trackGenerationUsedDaily(): Promise<void> {
+  const today = new Date().toISOString().slice(0, 10);
+  const settings = await getSettings();
+  const mode = settings.noren_pro_logged_in ? "noren_managed" : "byok";
+  const key = `analytics_last_generation_day:${mode}`;
+  const data = await chrome.storage.local.get(key);
+  if (data[key] === today) return;
+  await chrome.storage.local.set({ [key]: today });
+  await trackAnalyticsEvent("generation_used");
+}
+
+export async function ensureAnalyticsBootstrap(): Promise<void> {
+  try {
+    await getInstallToken();
+  } catch {
+    // Analytics must never block product flows.
+  }
+}
+
 async function getApiKey(providerName?: string): Promise<string | null> {
   // Try keychain first (OS-level secure storage)
   if (providerName) {
