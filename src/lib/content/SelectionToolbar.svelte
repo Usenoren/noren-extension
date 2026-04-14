@@ -1,10 +1,22 @@
 <script lang="ts">
-  let { x, y, onAction, loading = false, below = false }: {
+  let {
+    x,
+    y,
+    onAction,
+    loading = false,
+    below = false,
+    statusText = "",
+    previewText = "",
+    statusLabel = "",
+  }: {
     x: number;
     y: number;
     onAction: (action: string, intent?: string) => void;
     loading?: boolean;
     below?: boolean;
+    statusText?: string;
+    previewText?: string;
+    statusLabel?: string;
   } = $props();
 
   let replyMode = $state(false);
@@ -62,12 +74,23 @@
   class:noren-below={below}
   class:noren-reply-mode={replyMode || rewriteMode}
   class:noren-loading-mode={loading}
+  class:noren-status-mode={!!statusText && !loading}
   style="left: {x}px; top: {y}px;"
 >
   {#if loading}
     <div class="noren-loading noren-morph-enter">
       <span class="noren-spinner"></span>
       <span class="noren-loading-text">Weaving...</span>
+    </div>
+  {:else if statusText}
+    <div class="noren-status noren-morph-enter">
+      {#if statusLabel}
+        <span class="noren-status-label">{statusLabel}</span>
+      {/if}
+      <span class="noren-status-text">{statusText}</span>
+      {#if previewText}
+        <div class="noren-status-preview">{previewText}</div>
+      {/if}
     </div>
   {:else if replyMode}
     <div class="noren-reply-container noren-morph-enter">

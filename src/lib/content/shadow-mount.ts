@@ -2,6 +2,7 @@ import { mount, unmount, type Component } from "svelte";
 
 export interface ShadowMountResult {
   host: HTMLElement;
+  update: (props: Record<string, unknown>) => void;
   destroy: () => void;
 }
 
@@ -32,10 +33,14 @@ export function createShadowMount(
   container.style.pointerEvents = "auto";
   shadow.appendChild(container);
 
-  const instance = mount(component, { target: container, props });
+  let instance = mount(component, { target: container, props });
 
   return {
     host,
+    update: (nextProps: Record<string, unknown>) => {
+      unmount(instance);
+      instance = mount(component, { target: container, props: nextProps });
+    },
     destroy: () => {
       unmount(instance);
       host.remove();

@@ -2,6 +2,14 @@
 
 import { createShadowMount, type ShadowMountResult } from "$lib/content/shadow-mount";
 import SelectionToolbar from "$lib/content/SelectionToolbar.svelte";
+import {
+  QuickActionSession,
+  type QuickActionMode,
+  type QuickActionPlan,
+  type QuickActionSelectionSnapshot,
+  type QuickActionType,
+  type TargetDescriptor,
+} from "$lib/content/quick-action-session";
 // @ts-ignore
 import toolbarCss from "$lib/content/selection-toolbar.css?inline";
 
@@ -48,15 +56,60 @@ let savedEditableSelection: {
   end: number;
   text: string;
 } | null = null;
+let pendingReplyPointerTarget: HTMLElement | null = null;
+let pendingReplyCommitTimer: ReturnType<typeof setTimeout> | undefined;
+
+function resolveEditableTargetFromNode(node: Node | null): HTMLElement | null {
+  let current: Node | null = node;
+  while (current) {
+    if (current instanceof HTMLTextAreaElement || current instanceof HTMLInputElement) {
+      return current;
+    }
+    if (current instanceof HTMLElement && current.getAttribute("contenteditable") === "true") {
+      return current;
+    }
+    current = current.parentNode;
+  }
+  return null;
+}
+
+function clearPendingReplyTargetBinding() {
+  pendingReplyPointerTarget = null;
+  clearTimeout(pendingReplyCommitTimer);
+  pendingReplyCommitTimer = undefined;
+}
+
+function schedulePendingReplyCommit(target: HTMLElement, source: "pointer" | "focus") {
+  if (!pendingReplyCommit) return;
+
+  clearTimeout(pendingReplyCommitTimer);
+  pendingReplyCommitTimer = setTimeout(() => {
+    pendingReplyCommitTimer = undefined;
+    if (!pendingReplyCommit || !target.isConnected) return;
+
+    if (source === "pointer") {
+      const pointerTarget = pendingReplyPointerTarget;
+      if (!pointerTarget || !pointerTarget.isConnected) return;
+      const activeTarget = getEditableTarget();
+      if (activeTarget !== pointerTarget && document.activeElement !== pointerTarget) return;
+      commitPendingReplyTarget(pointerTarget);
+      return;
+    }
+
+    if (pendingReplyPointerTarget) return;
+    const activeTarget = getEditableTarget();
+    if (activeTarget !== target && document.activeElement !== target) return;
+    commitPendingReplyTarget(target);
+  }, source === "pointer" ? 60 : 140);
+}
 
 document.addEventListener("focusin", (e) => {
-  const el = e.target as HTMLElement;
-  if (
-    el instanceof HTMLTextAreaElement ||
-    el instanceof HTMLInputElement ||
-    el?.getAttribute("contenteditable") === "true"
-  ) {
+  const el = resolveEditableTargetFromNode(e.target as Node | null);
+  if (el) {
     lastFocusedEditable = el;
+    if (pendingReplyCommit && !pendingReplyPointerTarget) {
+      schedulePendingReplyCommit(el, "focus");
+    }
   }
 }, true);
 
@@ -185,6 +238,140 @@ function findAndSelectText(root: HTMLElement, searchText: string): boolean {
   return true;
 }
 
+function findAndSelectAnchoredText(
+  root: HTMLElement,
+  searchText: string,
+  anchors: { left: string; right: string },
+): boolean {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let accumulated = "";
+  const nodes: { node: Text; start: number }[] = [];
+
+  while (walker.nextNode()) {
+    const node = walker.currentNode as Text;
+    nodes.push({ node, start: accumulated.length });
+    accumulated += node.textContent || "";
+  }
+
+  const exactMatches: { start: number; end: number }[] = [];
+  let startIndex = 0;
+  while (true) {
+    const idx = accumulated.indexOf(searchText, startIndex);
+    if (idx === -1) break;
+    exactMatches.push({ start: idx, end: idx + searchText.length });
+    startIndex = idx + 1;
+  }
+
+  let candidates = exactMatches;
+
+  // For longer selections, exact whole-block matching in framework editors
+  // becomes brittle because the editor may normalize whitespace or split the
+  // DOM differently across nested nodes. Fall back to boundary matching using
+  // start/end probes, but only if it produces a unique candidate.
+  if (candidates.length === 0 && searchText.length > 280) {
+    const startProbe = searchText.slice(0, Math.min(96, searchText.length)).trim();
+    const endProbe = searchText.slice(Math.max(0, searchText.length - 96)).trim();
+    if (startProbe && endProbe) {
+      const startCandidates: number[] = [];
+      const endCandidates: number[] = [];
+
+      let probeIndex = 0;
+      while (true) {
+        const idx = accumulated.indexOf(startProbe, probeIndex);
+        if (idx === -1) break;
+        startCandidates.push(idx);
+        probeIndex = idx + 1;
+      }
+
+      probeIndex = 0;
+      while (true) {
+        const idx = accumulated.indexOf(endProbe, probeIndex);
+        if (idx === -1) break;
+        endCandidates.push(idx);
+        probeIndex = idx + 1;
+      }
+
+      const approximateLength = searchText.length;
+      const fuzzyCandidates: { start: number; end: number; score: number }[] = [];
+
+      for (const start of startCandidates) {
+        for (const endStart of endCandidates) {
+          const end = endStart + endProbe.length;
+          if (end <= start + startProbe.length) continue;
+          const lengthDelta = Math.abs((end - start) - approximateLength);
+          if (lengthDelta > Math.max(120, Math.floor(approximateLength * 0.2))) continue;
+
+          const leftSlice = accumulated.slice(Math.max(0, start - anchors.left.length), start);
+          const rightSlice = accumulated.slice(end, end + anchors.right.length);
+          const startWindow = accumulated.slice(start, Math.min(accumulated.length, start + Math.max(startProbe.length + 24, 120)));
+          const endWindow = accumulated.slice(Math.max(0, end - Math.max(endProbe.length + 24, 120)), end);
+          const score = (startWindow.includes(startProbe) ? 1 : 0)
+            + (endWindow.includes(endProbe) ? 1 : 0)
+            + (!anchors.left || leftSlice === anchors.left ? 1 : 0)
+            + (!anchors.right || rightSlice === anchors.right ? 1 : 0)
+            - (lengthDelta / Math.max(approximateLength, 1));
+
+          if (score >= 1.5) {
+            fuzzyCandidates.push({ start, end, score });
+          }
+        }
+      }
+
+      fuzzyCandidates.sort((a, b) => b.score - a.score);
+      const bestFuzzy = fuzzyCandidates[0];
+      if (bestFuzzy && !(fuzzyCandidates.length > 1 && Math.abs((fuzzyCandidates[1]?.score ?? 0) - bestFuzzy.score) < 0.01)) {
+        candidates = [{ start: bestFuzzy.start, end: bestFuzzy.end }];
+      }
+    }
+  }
+
+  if (candidates.length === 0) return false;
+
+  const scored = candidates.map(({ start, end }) => {
+    const leftSlice = accumulated.slice(Math.max(0, start - anchors.left.length), start);
+    const rightSlice = accumulated.slice(end, end + anchors.right.length);
+    let score = 0;
+    if (!anchors.left || leftSlice === anchors.left) score += 1;
+    if (!anchors.right || rightSlice === anchors.right) score += 1;
+    return { start, end, score };
+  }).sort((a, b) => b.score - a.score);
+
+  const best = scored[0];
+  if (!best) return false;
+  if (best.score === 0) return false;
+  if (scored.length > 1 && scored[1]?.score === best.score) return false;
+
+  const idx = best.start;
+  const endIdx = best.end;
+  let startNode: Text | null = null;
+  let startOffset = 0;
+  let endNode: Text | null = null;
+  let endOffset = 0;
+
+  for (const { node, start } of nodes) {
+    const nodeEnd = start + (node.textContent?.length || 0);
+    if (!startNode && idx >= start && idx < nodeEnd) {
+      startNode = node;
+      startOffset = idx - start;
+    }
+    if (endIdx > start && endIdx <= nodeEnd) {
+      endNode = node;
+      endOffset = endIdx - start;
+      break;
+    }
+  }
+
+  if (!startNode || !endNode) return false;
+
+  const range = document.createRange();
+  range.setStart(startNode, startOffset);
+  range.setEnd(endNode, endOffset);
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  return true;
+}
+
 function injectText(text: string) {
   // Prefer the currently active element if it's editable,
   // otherwise fall back to the last tracked editable element
@@ -265,12 +452,61 @@ function getSurroundingContext(selection: Selection, maxChars = 200): string | n
   return ctx;
 }
 
+function getSelectionAnchors(selection: Selection | null, selectedText: string, maxChars = 24): { left: string; right: string } {
+  if (!selection || !selection.rangeCount) {
+    return getAnchorContext(selectedText);
+  }
+
+  try {
+    const range = selection.getRangeAt(0);
+    const container = range.commonAncestorContainer;
+    const fullText = (container.nodeType === Node.TEXT_NODE
+      ? container.parentElement?.textContent
+      : (container as HTMLElement).textContent) || "";
+    const idx = fullText.indexOf(selectedText);
+    if (idx === -1) {
+      return getAnchorContext(selectedText);
+    }
+    return {
+      left: fullText.slice(Math.max(0, idx - maxChars), idx),
+      right: fullText.slice(idx + selectedText.length, idx + selectedText.length + maxChars),
+    };
+  } catch {
+    return getAnchorContext(selectedText);
+  }
+}
+
 // ============================================================
 // Selection Toolbar — appears on text selection
 // ============================================================
 
 let toolbarMount: ShadowMountResult | null = null;
 let processingAction = false;
+let activeQuickActionSession: QuickActionSession | null = null;
+let pendingReplyCommit: {
+  sessionId: string;
+  finalText: string;
+} | null = null;
+let lastToolbarStatus: {
+  x: number;
+  y: number;
+  below: boolean;
+  statusText: string;
+  previewText: string;
+  statusLabel: string;
+} | null = null;
+let toolbarStatusTimer: ReturnType<typeof setTimeout> | undefined;
+let pendingQuickActionCapture: {
+  text: string;
+  detectedFormat: string | null;
+  selection: QuickActionSelectionSnapshot;
+  target: TargetDescriptor;
+  ui: {
+    x: number;
+    y: number;
+    below: boolean;
+  };
+} | null = null;
 
 // Cache theme synchronously so toolbar renders with correct palette instantly
 let cachedTheme = "kon";
@@ -326,7 +562,16 @@ function handleSelectionCheck() {
     const noRoomAbove = visibleTop < 50;
     const noRoomBelow = visibleBottom > window.innerHeight - 50;
     const below = noRoomAbove || (isInsideEditable(selection!.anchorNode) && !noRoomBelow);
-    showToolbar(rect.left + rect.width / 2, below ? visibleBottom : visibleTop, text, below);
+    const x = rect.left + rect.width / 2;
+    const y = below ? visibleBottom : visibleTop;
+    pendingQuickActionCapture = {
+      text,
+      detectedFormat: detectFormatFromUrl(),
+      selection: createQuickActionSelectionSnapshot(selection, text),
+      target: describeQuickActionTarget(text, getSelectionAnchors(selection, text)),
+      ui: { x, y, below },
+    };
+    showToolbar(x, y, text, below);
   } catch {
     // getRangeAt can throw if selection is in an inaccessible context
   }
@@ -346,6 +591,14 @@ window.addEventListener("mouseup", (e) => {
 
 window.addEventListener("mousedown", (e) => {
   mouseupHandledSelection = false;
+  if (pendingReplyCommit) {
+    const editable = resolveEditableTargetFromNode(e.target as Node | null);
+    if (editable) {
+      pendingReplyPointerTarget = editable;
+      schedulePendingReplyCommit(editable, "pointer");
+      return;
+    }
+  }
   if (!toolbarMount) return;
   if (processingAction) return;
   const path = e.composedPath();
@@ -355,7 +608,14 @@ window.addEventListener("mousedown", (e) => {
 }, true);
 
 window.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") dismissToolbar();
+  if (e.key === "Escape") {
+    if (pendingReplyCommit) {
+      pendingReplyCommit = null;
+      clearPendingReplyTargetBinding();
+      activeQuickActionSession?.transition("cancelled", "Reply target capture cancelled");
+    }
+    dismissToolbar();
+  }
 }, true);
 
 // Fallback: selectionchange (keyboard selection, blocked mouseup)
@@ -405,7 +665,7 @@ function isInsideNorenUI(node: Node): boolean {
 }
 
 function showToolbar(x: number, y: number, selectedText: string, below = false) {
-  dismissToolbar();
+  destroyToolbarMount();
 
   // Clamp x to viewport
   const cx = Math.max(120, Math.min(x, window.innerWidth - 120));
@@ -426,30 +686,308 @@ function showToolbar(x: number, y: number, selectedText: string, below = false) 
   document.body.appendChild(toolbarMount.host);
 }
 
-function dismissToolbar() {
+function showToolbarStatus(x: number, y: number, below: boolean, statusText: string, previewText = "", statusLabel = "") {
+  const nextStatus = {
+    x: Math.max(180, Math.min(x, window.innerWidth - 180)),
+    y,
+    below,
+    statusText,
+    previewText,
+    statusLabel,
+  };
+
+  if (
+    lastToolbarStatus &&
+    lastToolbarStatus.x === nextStatus.x &&
+    lastToolbarStatus.y === nextStatus.y &&
+    lastToolbarStatus.below === nextStatus.below &&
+    lastToolbarStatus.statusText === nextStatus.statusText &&
+    lastToolbarStatus.previewText === nextStatus.previewText &&
+    lastToolbarStatus.statusLabel === nextStatus.statusLabel
+  ) {
+    return;
+  }
+
+  lastToolbarStatus = nextStatus;
+  if (toolbarStatusTimer) return;
+
+  toolbarStatusTimer = setTimeout(() => {
+    toolbarStatusTimer = undefined;
+    if (!lastToolbarStatus) return;
+
+    const { x: cx, y: cy, below: isBelow, statusText: text, previewText: preview, statusLabel: label } = lastToolbarStatus;
+    if (!toolbarMount) {
+      toolbarMount = createShadowMount(
+        SelectionToolbar as any,
+        {
+          x: cx,
+          y: cy,
+          below: isBelow,
+          loading: false,
+          statusText: text,
+          previewText: preview,
+          statusLabel: label,
+          onAction: () => {},
+        },
+        toolbarCss,
+        "noren-selection-toolbar",
+      );
+      toolbarMount.host.setAttribute("data-theme", cachedTheme);
+      document.body.appendChild(toolbarMount.host);
+      return;
+    }
+
+    toolbarMount.update({
+      x: cx,
+      y: cy,
+      below: isBelow,
+      loading: false,
+      statusText: text,
+      previewText: preview,
+      statusLabel: label,
+      onAction: () => {},
+    });
+    toolbarMount.host.setAttribute("data-theme", cachedTheme);
+  }, 100);
+}
+
+function createQuickActionSelectionSnapshot(selection: Selection | null, text: string): QuickActionSelectionSnapshot {
+  if (!selection || selection.rangeCount === 0) {
+    return { text, surroundingContext: null, rect: null };
+  }
+
+  let rect: QuickActionSelectionSnapshot["rect"] = null;
+  try {
+    const r = selection.getRangeAt(0).getBoundingClientRect();
+    rect = { left: r.left, top: r.top, width: r.width, height: r.height };
+  } catch {
+    rect = null;
+  }
+
+  return {
+    text,
+    surroundingContext: getSurroundingContext(selection),
+    rect,
+  };
+}
+
+function getAnchorContext(text: string): { left: string; right: string } {
+  const normalized = text.trim();
+  const left = normalized.slice(0, Math.min(24, normalized.length));
+  const right = normalized.slice(Math.max(0, normalized.length - 24));
+  return { left, right };
+}
+
+function describeQuickActionTarget(
+  selectedText: string,
+  anchors: { left: string; right: string },
+): TargetDescriptor {
+  const savedTarget = savedEditableSelection?.el?.isConnected && savedEditableSelection.text === selectedText
+    ? savedEditableSelection
+    : null;
+  const target = (savedTarget?.el || getEditableTarget()) as HTMLElement | null;
+
+  if (!target) {
+    return { kind: "none", target: null, root: null, selectedText, anchors };
+  }
+
+  if (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) {
+    const start = savedTarget && savedTarget.el === target ? savedTarget.start : (target.selectionStart ?? 0);
+    const end = savedTarget && savedTarget.el === target ? savedTarget.end : (target.selectionEnd ?? start);
+    return {
+      kind: "textarea_input",
+      target,
+      root: target,
+      selectedText,
+      anchors,
+      start,
+      end,
+      originalValue: target.value,
+    };
+  }
+
+  if (target.getAttribute("contenteditable") === "true") {
+    return {
+      kind: isFrameworkEditor(target) ? "framework_editor" : "plain_contenteditable",
+      target,
+      root: target,
+      selectedText,
+      anchors,
+    };
+  }
+
+  return { kind: "none", target: null, root: null, selectedText, anchors };
+}
+
+function getQuickActionMode(action: QuickActionType): QuickActionMode {
+  return action === "reply" ? "reply_insert" : "replace";
+}
+
+function buildQuickActionPlan(action: QuickActionType, text: string, intent?: string): QuickActionPlan {
+  const cachedCapture = pendingQuickActionCapture && pendingQuickActionCapture.text === text
+    ? pendingQuickActionCapture
+    : null;
+  const selection = window.getSelection();
+  const anchors = cachedCapture?.target.anchors || getSelectionAnchors(selection, text);
+  return {
+    sessionId: crypto.randomUUID(),
+    action,
+    mode: getQuickActionMode(action),
+    intent,
+    detectedFormat: cachedCapture?.detectedFormat || detectFormatFromUrl(),
+    selection: cachedCapture?.selection || createQuickActionSelectionSnapshot(selection, text),
+    target: cachedCapture?.target || describeQuickActionTarget(text, anchors),
+    createdAt: Date.now(),
+  };
+}
+
+function destroyToolbarMount() {
   if (toolbarMount) {
     toolbarMount.destroy();
     toolbarMount = null;
   }
+  lastToolbarStatus = null;
+  clearTimeout(toolbarStatusTimer);
+  toolbarStatusTimer = undefined;
+}
+
+function waitForNextFrame(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+async function verifyEditableCommit(
+  target: HTMLElement,
+  beforeText: string,
+  originalText: string,
+  finalText: string,
+): Promise<boolean> {
+  await waitForNextFrame();
+  await waitForNextFrame();
+
+  if (!target.isConnected) return false;
+
+  const afterText = target.textContent || "";
+  if (afterText === beforeText) return false;
+  if (!finalText.trim()) return false;
+
+  if (finalText.length <= 280) {
+    return afterText.includes(finalText);
+  }
+
+  const startProbe = finalText.slice(0, Math.min(96, finalText.length)).trim();
+  const endProbe = finalText.slice(Math.max(0, finalText.length - 96)).trim();
+  if (!startProbe || !endProbe) return false;
+  if (!afterText.includes(startProbe) || !afterText.includes(endProbe)) return false;
+  if (originalText && afterText.includes(originalText) && !afterText.includes(finalText)) return false;
+  return true;
+}
+
+function strictReplaceTextareaInput(
+  el: HTMLTextAreaElement | HTMLInputElement,
+  start: number,
+  end: number,
+  originalValue: string,
+  selectedText: string,
+  replacement: string,
+): boolean {
+  if (!el.isConnected) return false;
+  if (el.value !== originalValue) return false;
+  if (el.value.slice(start, end) !== selectedText) return false;
+
+  el.focus();
+  el.selectionStart = start;
+  el.selectionEnd = end;
+  el.value = el.value.slice(0, start) + replacement + el.value.slice(end);
+  el.selectionStart = el.selectionEnd = start + replacement.length;
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+}
+
+function getReplyCommitAnchor(): { x: number; y: number; below: boolean } {
+  const selection = window.getSelection();
+  if (selection && selection.rangeCount > 0) {
+    try {
+      const rect = selection.getRangeAt(0).getBoundingClientRect();
+      const below = rect.top < 50 || isInsideEditable(selection.anchorNode);
+      return { x: rect.left + rect.width / 2, y: below ? rect.bottom : rect.top, below };
+    } catch {
+      // Ignore and fall through.
+    }
+  }
+  return { x: window.innerWidth / 2, y: 100, below: false };
+}
+
+function commitPendingReplyTarget(target: HTMLElement) {
+  if (!pendingReplyCommit) return;
+
+  const finalText = pendingReplyCommit.finalText;
+  let applied = false;
+
+  if (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) {
+    const pos = target.selectionStart ?? target.value.length;
+    target.focus();
+    target.selectionStart = target.selectionEnd = pos;
+    target.value = target.value.slice(0, pos) + finalText + target.value.slice(pos);
+    target.selectionStart = target.selectionEnd = pos + finalText.length;
+    target.dispatchEvent(new Event("input", { bubbles: true }));
+    target.dispatchEvent(new Event("change", { bubbles: true }));
+    applied = true;
+  } else if (target.getAttribute("contenteditable") === "true" && isFrameworkEditor(target)) {
+    target.focus();
+    const dt = new DataTransfer();
+    dt.setData("text/plain", finalText);
+    target.dispatchEvent(new ClipboardEvent("paste", {
+      clipboardData: dt,
+      bubbles: true,
+      cancelable: true,
+    }));
+    applied = true;
+  } else {
+    safeCopy(finalText, "Copied reply. Click target unsupported.");
+  }
+
+  pendingReplyCommit = null;
+  clearPendingReplyTargetBinding();
+  dismissToolbar();
+
+  if (applied) {
+    activeQuickActionSession?.transition("committed", "Reply target captured and reply inserted");
+  } else {
+    activeQuickActionSession?.transition("failed_manual", "Reply target unsupported; copied instead");
+  }
+}
+
+function dismissToolbar() {
+  destroyToolbarMount();
   processingAction = false;
   clearTimeout(selectionChangeTimer);
+  if (!pendingReplyCommit) {
+    clearPendingReplyTargetBinding();
+    pendingQuickActionCapture = null;
+  }
 }
 
 async function handleQuickAction(action: string, text: string, intent?: string) {
+  const quickAction = action as QuickActionType;
+  const plan = buildQuickActionPlan(quickAction, text, intent);
+  activeQuickActionSession = new QuickActionSession(plan);
+  activeQuickActionSession.transition("plan_validated", "Quick action plan created", {
+    detectedFormat: plan.detectedFormat,
+    targetKind: plan.target.kind,
+  });
+
   processingAction = true;
 
   // Show loading state — recreate toolbar with loading=true
-  const sel = window.getSelection();
-  let tx = window.innerWidth / 2, ty = 100;
-  let belowPos = false;
-  if (sel && sel.rangeCount > 0) {
-    const r = sel.getRangeAt(0).getBoundingClientRect();
-    tx = r.left + r.width / 2;
-    belowPos = r.top < 50 || isInsideEditable(sel.anchorNode);
-    ty = belowPos ? r.bottom : r.top;
-  }
+  const cachedCapture = pendingQuickActionCapture && pendingQuickActionCapture.text === text
+    ? pendingQuickActionCapture
+    : null;
+  let tx = cachedCapture?.ui.x ?? window.innerWidth / 2;
+  let ty = cachedCapture?.ui.y ?? 100;
+  let belowPos = cachedCapture?.ui.below ?? false;
 
-  const targetEl = getEditableTarget();
+  const targetEl = plan.target.target;
   const streamIntoField = !!targetEl;
 
   // Destroy old toolbar, create loading one
@@ -468,42 +1006,14 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
   document.body.appendChild(toolbarMount.host);
 
   // Gather context signals before deletion (selection still intact)
-  const detectedFormat = detectFormatFromUrl();
-  let surroundingContext: string | null = null;
-  if (action === "reply" || action === "rewrite") {
-    const currentSel = window.getSelection();
-    if (currentSel) surroundingContext = getSurroundingContext(currentSel);
-  }
-
-  // For rewrite/fix: clear the selected text so replacement streams into its place
-  let savedTextareaValue: string | undefined;
-  if ((action === "rewrite" || action === "fix") && streamIntoField && targetEl) {
-    targetEl.focus();
-    if (targetEl instanceof HTMLTextAreaElement || targetEl instanceof HTMLInputElement) {
-      savedTextareaValue = targetEl.value;
-      const start = targetEl.selectionStart ?? 0;
-      const end = targetEl.selectionEnd ?? targetEl.value.length;
-      targetEl.value = targetEl.value.slice(0, start) + targetEl.value.slice(end);
-      targetEl.selectionStart = targetEl.selectionEnd = start;
-    } else if (targetEl.getAttribute("contenteditable") === "true") {
-      if (!isFrameworkEditor(targetEl)) {
-        // Plain contenteditable: delete selected text so streaming fills the gap
-        const sel = window.getSelection();
-        if (!sel || sel.isCollapsed) {
-          if (savedEditableSelection && savedEditableSelection.el === targetEl && savedEditableSelection.text) {
-            findAndSelectText(targetEl, savedEditableSelection.text);
-          }
-        }
-        document.execCommand("delete");
-      }
-      // Framework editors: skip delete, will replace via paste on completion
-    }
-  }
+  const detectedFormat = plan.detectedFormat;
+  const surroundingContext = plan.selection.surroundingContext;
 
   // Stream via port connection to background
   const port = chrome.runtime.connect({ name: "quick-action-stream" });
   let streamedText = "";
   let finalContent = "";
+  let streamTerminated = false;
 
   const isTextarea = streamIntoField && targetEl &&
     (targetEl instanceof HTMLTextAreaElement || targetEl instanceof HTMLInputElement);
@@ -511,59 +1021,40 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
     !isTextarea && targetEl.getAttribute("contenteditable") === "true";
   const isFramework = isContentEditable && isFrameworkEditor(targetEl!);
 
+  activeQuickActionSession?.transition("executing", "Quick action generation started", {
+    mode: plan.mode,
+  });
+
   port.onMessage.addListener((event) => {
     if (event.type === "delta") {
       streamedText += event.text;
-      if (isTextarea && targetEl) {
-        // textarea/input: stream chunks directly, cursor tracked
-        appendToField(targetEl, event.text);
-      } else if (isContentEditable && !isFramework && targetEl) {
-        // contenteditable: stream chunks with paragraph breaks preserved.
-        // execCommand("insertText") swallows \n in per-chunk calls,
-        // so we split on newlines and use insertParagraph for double breaks.
-        targetEl.focus();
-        const chunk = event.text;
-        if (!chunk.includes("\n")) {
-          document.execCommand("insertText", false, chunk);
-        } else {
-          const segments = chunk.split(/(\n{2,}|\n)/);
-          for (const seg of segments) {
-            if (seg === "\n\n" || seg.match(/^\n{2,}$/)) {
-              document.execCommand("insertParagraph");
-            } else if (seg === "\n") {
-              document.execCommand("insertLineBreak");
-            } else if (seg) {
-              document.execCommand("insertText", false, seg);
-            }
-          }
-        }
-      }
+      activeQuickActionSession?.appendPreview(event.text);
+      showToolbarStatus(
+        tx,
+        ty,
+        belowPos,
+        "Weaving...",
+        activeQuickActionSession?.previewBuffer || streamedText,
+        action === "reply" ? "Reply" : action === "rewrite" ? "Rewrite" : "Fix",
+      );
     } else if (event.type === "done") {
+      streamTerminated = true;
       finalContent = event.content || streamedText;
+      activeQuickActionSession?.setFinalText(finalContent);
+      activeQuickActionSession?.transition("commit_pending", "Quick action generation complete", {
+        outputChars: finalContent.length,
+      });
       port.disconnect();
       dismissToolbar();
+      void (async () => {
+        let commitApplied = false;
+        let usedManualFallback = false;
 
-      if (isContentEditable && targetEl) {
-        if (isFramework) {
-          targetEl.focus();
-          if (action === "reply") {
-            // Reply: insert at cursor in the compose box. The source text
-            // (`text`) is what's being replied TO; it does not exist in the
-            // target editor and must not be searched for.
-            const dt = new DataTransfer();
-            dt.setData("text/plain", finalContent);
-            targetEl.dispatchEvent(new ClipboardEvent("paste", {
-              clipboardData: dt,
-              bubbles: true,
-              cancelable: true,
-            }));
-          } else {
-            // Rewrite/Fix: replace the original selected text via find-and-paste
-            // so the framework's internal state stays in sync with the DOM.
-            // `text` (function param) is the original selection captured at
-            // toolbar creation — stable, unlike savedEditableSelection which
-            // can be overwritten by user clicks during loading.
-            if (findAndSelectText(targetEl, text)) {
+        if (isContentEditable && targetEl) {
+          const beforeText = targetEl.textContent || "";
+          if (isFramework) {
+            targetEl.focus();
+            if (plan.mode === "reply_insert") {
               const dt = new DataTransfer();
               dt.setData("text/plain", finalContent);
               targetEl.dispatchEvent(new ClipboardEvent("paste", {
@@ -571,48 +1062,142 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
                 bubbles: true,
                 cancelable: true,
               }));
+              commitApplied = await verifyEditableCommit(targetEl, beforeText, "", finalContent);
+              if (!commitApplied) {
+                safeCopy(finalContent, "Copied reply. Couldn't verify insertion here.");
+                usedManualFallback = true;
+              }
+            } else if (findAndSelectAnchoredText(targetEl, text, plan.target.anchors)) {
+              const dt = new DataTransfer();
+              dt.setData("text/plain", finalContent);
+              targetEl.dispatchEvent(new ClipboardEvent("paste", {
+                clipboardData: dt,
+                bubbles: true,
+                cancelable: true,
+              }));
+              commitApplied = await verifyEditableCommit(targetEl, beforeText, text, finalContent);
+              if (!commitApplied) {
+                safeCopy(finalContent, "Copied rewrite. Couldn't verify replacement here.");
+                usedManualFallback = true;
+              }
             } else {
-              // Original text not found in DOM (framework re-rendered).
-              // Copy to clipboard instead of pasting at an arbitrary position.
-              safeCopy(finalContent);
+              safeCopy(finalContent, "Copied rewrite. Couldn't safely replace here.");
+              usedManualFallback = true;
+            }
+          } else {
+            targetEl.focus();
+            if (plan.mode === "reply_insert") {
+              const anchor = getReplyCommitAnchor();
+              pendingReplyCommit = {
+                sessionId: plan.sessionId,
+                finalText: finalContent,
+              };
+              clearPendingReplyTargetBinding();
+              showToolbarStatus(
+                anchor.x,
+                anchor.y,
+                anchor.below,
+                "Click where the reply should go",
+                finalContent,
+                "Reply Ready",
+              );
+              activeQuickActionSession?.transition("executing", "Awaiting explicit reply target");
+              return;
+            } else if (findAndSelectAnchoredText(targetEl, text, plan.target.anchors)) {
+              document.execCommand("insertText", false, finalContent);
+              commitApplied = await verifyEditableCommit(targetEl, beforeText, text, finalContent);
+              if (!commitApplied) {
+                safeCopy(finalContent, "Copied rewrite. Couldn't verify replacement here.");
+                usedManualFallback = true;
+              }
+            } else {
+              safeCopy(finalContent, "Copied rewrite. Couldn't safely replace here.");
+              usedManualFallback = true;
             }
           }
+        } else if (isTextarea) {
+          if (plan.target.kind === "textarea_input") {
+            if (plan.mode === "reply_insert") {
+              const el = plan.target.target;
+              if (el.isConnected && el.value === plan.target.originalValue) {
+                const insertAt = plan.target.end;
+                el.focus();
+                el.selectionStart = el.selectionEnd = insertAt;
+                el.value = el.value.slice(0, insertAt) + finalContent + el.value.slice(insertAt);
+                el.selectionStart = el.selectionEnd = insertAt + finalContent.length;
+                el.dispatchEvent(new Event("input", { bubbles: true }));
+                el.dispatchEvent(new Event("change", { bubbles: true }));
+                commitApplied = el.value.slice(insertAt, insertAt + finalContent.length) === finalContent;
+              } else {
+                safeCopy(finalContent, "Copied reply. Target changed while waiting.");
+                usedManualFallback = true;
+              }
+            } else if (strictReplaceTextareaInput(
+              plan.target.target,
+              plan.target.start,
+              plan.target.end,
+              plan.target.originalValue,
+              plan.target.selectedText,
+              finalContent,
+            )) {
+              commitApplied = true;
+            } else {
+              safeCopy(finalContent, "Copied rewrite. Draft changed while waiting.");
+              usedManualFallback = true;
+            }
+          } else {
+            safeCopy(finalContent, "Copied result. Original selection wasn't editable.");
+            usedManualFallback = true;
+          }
         } else {
-          // Plain contenteditable: text already streamed, restore focus
-          targetEl.focus();
+          if (plan.mode === "reply_insert") {
+            const anchor = getReplyCommitAnchor();
+            pendingReplyCommit = {
+              sessionId: plan.sessionId,
+              finalText: finalContent,
+            };
+            clearPendingReplyTargetBinding();
+            showToolbarStatus(
+              anchor.x,
+              anchor.y,
+              anchor.below,
+              "Click where the reply should go",
+              finalContent,
+              "Reply Ready",
+            );
+            activeQuickActionSession?.transition("executing", "Awaiting explicit reply target");
+            return;
+          } else {
+            safeCopy(finalContent, "Copied result. Original selection wasn't editable.");
+            usedManualFallback = true;
+          }
         }
-      } else if (isTextarea) {
-        // textarea/input: text already streamed in
-      } else {
-        // No target at start. Check again (user may have clicked into a field while waiting)
-        const lateTarget = getEditableTarget();
-        if (lateTarget) {
-          injectText(finalContent);
-        } else {
-          safeCopy(finalContent);
+        if (commitApplied) {
+          activeQuickActionSession?.transition("committed", "Quick action applied");
+        } else if (usedManualFallback) {
+          activeQuickActionSession?.transition("failed_manual", "Quick action copied instead of applying");
         }
-      }
+      })();
     } else if (event.type === "error") {
+      streamTerminated = true;
       port.disconnect();
       dismissToolbar();
-      if (savedTextareaValue !== undefined && !streamedText && targetEl) {
-        (targetEl as HTMLTextAreaElement).value = savedTextareaValue;
-        targetEl.dispatchEvent(new Event("input", { bubbles: true }));
-      }
+      activeQuickActionSession?.transition("failed_recoverable", "Quick action generation failed", {
+        message: event.message,
+      });
       console.error("[Noren] Quick action error:", event.message);
       showErrorNotification(event.message);
     }
   });
 
   port.onDisconnect.addListener(() => {
-    if (!finalContent && !streamedText) {
-      dismissToolbar();
-      if (savedTextareaValue !== undefined && targetEl) {
-        (targetEl as HTMLTextAreaElement).value = savedTextareaValue;
-        targetEl.dispatchEvent(new Event("input", { bubbles: true }));
-      }
-      showErrorNotification("Connection lost");
-    }
+    if (streamTerminated) return;
+    streamTerminated = true;
+    dismissToolbar();
+    activeQuickActionSession?.transition("failed_recoverable", "Quick action stream disconnected before completion", {
+      hadPartialOutput: !!streamedText,
+    });
+    showErrorNotification(streamedText ? "Generation interrupted before completion" : "Connection lost");
   });
 
   port.postMessage({ action, text, detectedFormat, surroundingContext, intent });
@@ -651,7 +1236,7 @@ function getEditableTarget(): HTMLElement | null {
 // Robust clipboard copy with legacy execCommand fallback for cases where
 // navigator.clipboard.writeText rejects (e.g. document not focused, permission
 // denied). Always surfaces success or failure to the user via a notification.
-function safeCopy(text: string) {
+function safeCopy(text: string, successMessage = "Copied to clipboard") {
   const legacy = () => {
     try {
       const ta = document.createElement("textarea");
@@ -669,10 +1254,10 @@ function safeCopy(text: string) {
   };
 
   navigator.clipboard.writeText(text)
-    .then(() => showCopiedNotification())
+    .then(() => showCopiedNotificationWithText(successMessage))
     .catch(() => {
       if (legacy()) {
-        showCopiedNotification();
+        showCopiedNotificationWithText(successMessage);
       } else {
         console.error("[Noren] Failed to copy to clipboard:", text.slice(0, 100));
         showErrorNotification("Couldn't copy to clipboard");
@@ -710,6 +1295,7 @@ function showErrorNotification(error: string) {
   else if (e.includes("rate") || e.includes("429")) msg = "Rate limit reached. Try again shortly.";
   else if (e.includes("no voice profile") || e.includes("profile")) msg = "No voice profile found.";
   else if (e.includes("network") || e.includes("fetch")) msg = "Network error. Check your connection.";
+  else if (error.trim()) msg = error.trim().slice(0, 160);
 
   const el = document.createElement("noren-notification");
   el.style.cssText = `
@@ -750,6 +1336,10 @@ function showErrorNotification(error: string) {
 }
 
 function showCopiedNotification() {
+  showCopiedNotificationWithText("Copied to clipboard");
+}
+
+function showCopiedNotificationWithText(message: string) {
   const el = document.createElement("noren-notification");
   el.style.cssText = `
     all: initial;
@@ -768,7 +1358,7 @@ function showCopiedNotification() {
     animation: noren-notif 2s ease-out forwards;
     pointer-events: none;
   `;
-  el.textContent = "Copied to clipboard";
+  el.textContent = message;
 
   const style = document.createElement("style");
   style.textContent = `
