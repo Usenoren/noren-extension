@@ -3,7 +3,7 @@
   "name": "Noren",
   "version": "1.0.0",
   "description": "Writing That Sounds Like You. Rewrite, reply, or fix selected text in your voice on any site.",
-  "permissions": ["activeTab", "scripting", "storage", "contextMenus", "sidePanel", "declarativeNetRequest", "nativeMessaging"],
+  "permissions": ["activeTab", "storage", "contextMenus", "sidePanel", "declarativeNetRequest", "nativeMessaging"],
   "side_panel": {
     "default_path": "sidepanel.html"
   },
