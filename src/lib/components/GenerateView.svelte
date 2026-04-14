@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { generate, generateStream, generateComparison, listFormats, injectGeneratedText, getProfileOverview, createCheckout, logEdit, type GenerateResult, type ComparisonResult, type FixSpan } from "$lib/api/noren";
+  import { generate, generateStream, generateComparison, listFormats, injectGeneratedText, getProfileOverview, createCheckout, logEdit, trackGenerationUsedDaily, type GenerateResult, type ComparisonResult, type FixSpan } from "$lib/api/noren";
   import { isFree, isPro } from "$lib/stores/subscription.svelte";
   import { friendlyError } from "$lib/utils/errors";
   import LoadingSpinner from "./LoadingSpinner.svelte";
@@ -59,6 +59,17 @@
   // --- History persistence ---
   const HISTORY_KEY = "noren:weave_history";
   const MAX_HISTORY = 20;
+
+  function notifyUsageRefresh() {
+    window.dispatchEvent(new CustomEvent("noren:usage-refresh"));
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent("noren:usage-refresh"));
+    }, 2000);
+  }
+
+  function markGenerationCompleted() {
+    trackGenerationUsedDaily().catch(() => {});
+  }
 
   async function loadHistory() {
     try {
@@ -174,6 +185,8 @@
         });
         output = comparison.with_voice;
         editedText = output.text;
+        markGenerationCompleted();
+        notifyUsageRefresh();
         saveToHistory({ id: crypto.randomUUID(), timestamp: new Date().toISOString(), format, prompt: savedPrompt, mode, text: output.text, token_count: output.input_tokens + output.output_tokens });
       } catch (e) {
         error = friendlyError(e);
@@ -214,6 +227,8 @@
               output = { text: streamedText, input_tokens: streamTokens.input, output_tokens: streamTokens.output };
               editedText = streamedText;
               phase = "done";
+              markGenerationCompleted();
+              notifyUsageRefresh();
               weaveComplete = true;
               setTimeout(() => { weaveComplete = false; }, 1000);
               saveToHistory({ id: crypto.randomUUID(), timestamp: new Date().toISOString(), format, prompt: savedPrompt, mode, text: streamedText, token_count: streamTokens.input + streamTokens.output });
@@ -230,13 +245,15 @@
           output = { text: event.content, input_tokens: streamTokens.input, output_tokens: streamTokens.output };
           editedText = event.content;
           phase = "done";
+          markGenerationCompleted();
+          notifyUsageRefresh();
           weaveComplete = true;
           setTimeout(() => { weaveComplete = false; }, 1000);
           saveToHistory({ id: crypto.randomUUID(), timestamp: new Date().toISOString(), format, prompt: savedPrompt, mode, text: event.content, token_count: streamTokens.input + streamTokens.output });
           // Auto-copy
           try { await navigator.clipboard.writeText(event.content); copied = true; } catch {}
         } else if (event.type === "error") {
-          error = event.message;
+          error = friendlyError(event.message);
           phase = "idle";
           return;
         }
@@ -248,6 +265,8 @@
         output = { text: streamedText, input_tokens: streamTokens.input, output_tokens: streamTokens.output };
         editedText = streamedText;
         phase = "done";
+        markGenerationCompleted();
+        notifyUsageRefresh();
         weaveComplete = true;
         setTimeout(() => { weaveComplete = false; }, 1000);
         saveToHistory({ id: crypto.randomUUID(), timestamp: new Date().toISOString(), format, prompt: savedPrompt, mode, text: streamedText, token_count: streamTokens.input + streamTokens.output });

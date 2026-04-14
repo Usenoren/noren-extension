@@ -30,7 +30,7 @@
     type SubscriptionStatus,
     isKeychainAvailable,
   } from "$lib/api/noren";
-  import { friendlyError } from "$lib/utils/errors";
+  import { friendlyError, isAuthSessionError } from "$lib/utils/errors";
   import LoadingSpinner from "./LoadingSpinner.svelte";
 
   const presets = [
@@ -120,6 +120,34 @@
     loadSettings();
   });
 
+  $effect(() => {
+    function handleUsageRefresh() {
+      if (settings?.noren_pro_logged_in) {
+        refreshUsageOnly();
+      }
+    }
+    window.addEventListener("noren:usage-refresh", handleUsageRefresh);
+    return () => window.removeEventListener("noren:usage-refresh", handleUsageRefresh);
+  });
+
+  async function refreshUsageOnly() {
+    if (!settings?.noren_pro_logged_in) return;
+    try {
+      proStatus = await getNorenProUsage();
+    } catch (e) {
+      if (isAuthSessionError(e)) {
+        try {
+          await norenProLogout();
+          settings = await getSettings();
+        } catch { /* ignore */ }
+        proStatus = null;
+        subscription = null;
+      } else {
+        error = friendlyError(e);
+      }
+    }
+  }
+
   async function loadSettings() {
     try {
       settings = await getSettings();
@@ -162,13 +190,17 @@
             subscription = null;
           }
 
-        } catch {
-          try {
-            await norenProLogout();
-            settings = await getSettings();
-          } catch { /* ignore */ }
-          proStatus = null;
-          subscription = null;
+        } catch (e) {
+          if (isAuthSessionError(e)) {
+            try {
+              await norenProLogout();
+              settings = await getSettings();
+            } catch { /* ignore */ }
+            proStatus = null;
+            subscription = null;
+          } else {
+            error = friendlyError(e);
+          }
         }
       } else {
         proStatus = null;
@@ -273,7 +305,7 @@
     }
   }
 
-  async function handleModeSwitch(mode: string) {
+  async function handleModeSwitch(mode: "byok" | "noren_pro") {
     error = "";
     try {
       await setInferenceMode(mode);
@@ -543,7 +575,7 @@
           class:on={showAuthForm}
           class:on-pro={showAuthForm}
           onclick={() => { showAuthForm = true; }}
-        >Noren Pro<span class="sv-mode-sub">No key needed</span></button>
+        >Noren<span class="sv-mode-sub">Sign in</span></button>
       </div>
     {/if}
 
@@ -573,7 +605,7 @@
 
     <!-- Free tier banners (show whenever logged in as free, regardless of mode tab) -->
     {#if settings.noren_pro_logged_in && isFree && !isTrial}
-      <div class="sv-no-inference">No bundled inference on Free. Subscribe to Pro or switch to BYOK.</div>
+      <div class="sv-no-inference">Free includes limited bundled inference. Upgrade to Pro for higher limits and full access.</div>
       <button class="sv-upgrade-banner" onclick={() => handleUpgrade("pro")}>
         <div class="sv-upgrade-left">
           <div class="sv-upgrade-name">Upgrade to Pro</div>
@@ -679,7 +711,7 @@
           </div>
 
         {:else if showAuthForm}
-          <!-- Login/Signup (non-logged-in user clicked Pro tab) -->
+          <!-- Login/Signup (non-logged-in user clicked Noren tab) -->
           <div class="sv-section">
             <div class="sv-stack">
               <button class="sv-google-btn" onclick={handleGoogleSignIn} disabled={googleLoading || proLoading}>
@@ -882,9 +914,9 @@
         {#if settings?.noren_pro_logged_in && hasInference}
           Your voice runs on Noren's servers. Usage resets monthly.
         {:else if settings?.noren_pro_logged_in && isFree}
-          No bundled inference on Free. Upgrade to Pro or set up a BYOK key.
+          Signed-in free accounts use Noren's servers with limited monthly generations.
         {:else if showAuthForm}
-          Sign in or create an account to use Noren Pro.
+          Sign in or create an account to use Noren.
         {:else}
           {#if keychainActive}
             API keys secured in macOS Keychain. Any OpenAI-compatible provider works.

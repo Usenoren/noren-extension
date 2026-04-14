@@ -27,6 +27,8 @@
   let copiedTab = $state("");
   let totalInputTokens = $state(0);
   let totalOutputTokens = $state(0);
+  const sourceFormatSelectId = "repurpose-source-format";
+  const targetFormatsGroupId = "repurpose-target-formats";
 
   // Init targets: all except source format's family
   function resetTargets() {
@@ -124,8 +126,9 @@
     <div class="flex-1 min-h-0 flex flex-col overflow-hidden px-4">
       <!-- Source format + grab context -->
       <div class="flex items-center gap-2 pb-2 shrink-0">
-        <label class="text-[10px] text-muted uppercase tracking-wide font-medium">From</label>
+        <label for={sourceFormatSelectId} class="text-[10px] text-muted uppercase tracking-wide font-medium">From</label>
         <select
+          id={sourceFormatSelectId}
           bind:value={sourceFormat}
           class="px-2 py-1 text-xs border border-border bg-surface text-foreground rounded-md focus:outline-none focus:border-secondary"
         >
@@ -156,8 +159,8 @@
 
       <!-- Target formats -->
       <div class="pt-3 pb-2 shrink-0">
-        <label class="text-[10px] text-muted uppercase tracking-wide font-medium mb-1.5 block">To</label>
-        <div class="flex flex-col gap-1.5">
+        <label for={targetFormatsGroupId} class="text-[10px] text-muted uppercase tracking-wide font-medium mb-1.5 block">To</label>
+        <div id={targetFormatsGroupId} class="flex flex-col gap-1.5">
           {#each FORMAT_FAMILIES as family}
             {@const visibleFormats = family.formats.filter((f) => f !== sourceFormat)}
             {#if visibleFormats.length > 0}

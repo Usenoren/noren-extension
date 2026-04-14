@@ -10,7 +10,7 @@
   let replyMode = $state(false);
   let rewriteMode = $state(false);
   let intentText = $state("");
-  let inputEl: HTMLInputElement;
+  let inputEl = $state<HTMLInputElement | undefined>(undefined);
 
   const actions = [
     { id: "rewrite", label: "Rewrite" },
@@ -81,7 +81,9 @@
         onkeydown={handleKeydown}
       />
       <button
+        type="button"
         class="noren-reply-send"
+        aria-label="Send reply intent"
         onmousedown={(e) => e.preventDefault()}
         onclick={submitReply}
       >
@@ -102,7 +104,9 @@
         onkeydown={handleKeydown}
       />
       <button
+        type="button"
         class="noren-reply-send"
+        aria-label="Send rewrite intent"
         onmousedown={(e) => e.preventDefault()}
         onclick={submitRewrite}
       >
@@ -114,6 +118,7 @@
   {:else}
     {#each actions as action}
       <button
+        type="button"
         class="noren-action"
         onmousedown={(e) => e.preventDefault()}
         onclick={() => handleAction(action.id)}

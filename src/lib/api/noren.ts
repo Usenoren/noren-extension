@@ -238,6 +238,130 @@ async function clearTokens(): Promise<void> {
   await chrome.storage.local.remove(["auth_token", "refresh_token"]);
 }
 
+function shouldUseBundledInference(settings: SettingsInfo): boolean {
+  return settings.noren_pro_logged_in;
+}
+
+function extractErrorMessage(raw: string): string {
+  const trimmed = raw.trim();
+  const candidates = [trimmed];
+  const errorPrefix = "Error: ";
+  if (trimmed.startsWith(errorPrefix)) {
+    candidates.push(trimmed.slice(errorPrefix.length).trim());
+  }
+  for (const candidate of candidates) {
+    if (!(candidate.startsWith("{") && candidate.endsWith("}"))) continue;
+    try {
+      const parsed = JSON.parse(candidate) as { detail?: unknown; message?: unknown };
+      if (typeof parsed.detail === "string") return parsed.detail;
+      if (typeof parsed.message === "string") return parsed.message;
+    } catch {
+      // ignore malformed JSON-like strings
+    }
+  }
+  return raw;
+}
+
+async function clearNorenAuthState(): Promise<void> {
+  await clearTokens();
+  await setInferenceMode("byok");
+}
+
+export type AnalyticsEventName =
+  | "generation_used";
+
+async function bootstrapInstallToken(): Promise<string | null> {
+  try {
+    const resp = await fetch(`${API_BASE}/analytics/bootstrap`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ product: "extension" }),
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const token = typeof data?.install_token === "string" ? data.install_token : null;
+    if (!token) return null;
+    await chrome.storage.local.set({ analytics_install_token: token });
+    return token;
+  } catch {
+    return null;
+  }
+}
+
+async function getInstallToken(): Promise<string | null> {
+  const data = await chrome.storage.local.get("analytics_install_token");
+  if (typeof data.analytics_install_token === "string" && data.analytics_install_token) {
+    return data.analytics_install_token;
+  }
+  return bootstrapInstallToken();
+}
+
+export async function trackAnalyticsEvent(eventName: AnalyticsEventName): Promise<void> {
+  try {
+    const settings = await getSettings();
+    const authState = settings.noren_pro_logged_in ? "signed_in" : "signed_out";
+    const inferenceMode = settings.noren_pro_logged_in ? "noren_managed" : "byok";
+    let installToken = await getInstallToken();
+    if (!installToken) return;
+
+    let resp = await fetch(`${API_BASE}/analytics/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        events: [{
+          install_token: installToken,
+          event_name: eventName,
+          product: "extension",
+          auth_state: authState,
+          inference_mode: inferenceMode,
+        }],
+      }),
+    });
+
+    if (resp.status === 400) {
+      await chrome.storage.local.remove("analytics_install_token");
+      installToken = await bootstrapInstallToken();
+      if (!installToken) return;
+      resp = await fetch(`${API_BASE}/analytics/events`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          events: [{
+            install_token: installToken,
+            event_name: eventName,
+            product: "extension",
+            auth_state: authState,
+            inference_mode: inferenceMode,
+          }],
+        }),
+      });
+    }
+
+    void resp;
+  } catch {
+    // Analytics must never block product flows.
+  }
+}
+
+export async function trackGenerationUsedDaily(): Promise<void> {
+  const today = new Date().toISOString().slice(0, 10);
+  const settings = await getSettings();
+  const mode = settings.noren_pro_logged_in ? "noren_managed" : "byok";
+  const key = `analytics_last_generation_day:${mode}`;
+  const data = await chrome.storage.local.get(key);
+  if (data[key] === today) return;
+  await chrome.storage.local.set({ [key]: today });
+  await trackAnalyticsEvent("generation_used");
+}
+
+export async function ensureAnalyticsBootstrap(): Promise<void> {
+  try {
+    await getInstallToken();
+  } catch {
+    // Analytics must never block product flows.
+  }
+}
+
 async function getApiKey(providerName?: string): Promise<string | null> {
   // Try keychain first (OS-level secure storage)
   if (providerName) {
@@ -333,8 +457,20 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<Respon
       } else if (refreshRes.status === 401) {
         // Token genuinely revoked (password change, logout-all, expired).
         // Only clear on 401 — not on 429 (rate limit) or 5xx (transient).
-        await clearTokens();
+        await clearNorenAuthState();
+        return new Response("Session expired. Please sign in again.", {
+          status: 401,
+          statusText: "Unauthorized",
+          headers: { "Content-Type": "text/plain" },
+        });
       }
+    } else {
+      await clearNorenAuthState();
+      return new Response("Session expired. Please sign in again.", {
+        status: 401,
+        statusText: "Unauthorized",
+        headers: { "Content-Type": "text/plain" },
+      });
     }
   }
 
@@ -700,6 +836,7 @@ async function byokAnthropic(
   system: string,
   userContent: string,
   skipThinking = false,
+  maxTokens?: number,
 ): Promise<GenerateResult> {
   const thinking = skipThinking ? { enabled: false, budget: 0 } : await getThinkingSettings();
   const isClaudeToken = provider.name === "claude-token";
@@ -719,7 +856,7 @@ async function byokAnthropic(
 
   const body: Record<string, unknown> = {
     model: provider.model,
-    max_tokens: thinking.enabled ? thinking.budget + 4096 : 4096,
+    max_tokens: maxTokens ?? (thinking.enabled ? thinking.budget + 4096 : 4096),
     system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: userContent }],
   };
@@ -755,6 +892,7 @@ async function byokOpenAI(
   apiKey: string | null,
   system: string,
   userContent: string,
+  maxTokens = 4096,
 ): Promise<GenerateResult> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (apiKey) {
@@ -768,7 +906,7 @@ async function byokOpenAI(
     headers,
     body: JSON.stringify({
       model: provider.model,
-      max_tokens: 4096,
+      max_tokens: maxTokens,
       messages: [
         { role: "system", content: system },
         { role: "user", content: userContent },
@@ -893,7 +1031,7 @@ export async function generate(params: {
 }): Promise<GenerateResult> {
   const settings = await getSettings();
 
-  if (settings.noren_pro_logged_in) {
+  if (shouldUseBundledInference(settings)) {
     const resp = await apiJson<{ content: string; input_tokens: number; output_tokens: number }>("/generate/", {
       method: "POST",
       body: JSON.stringify({
@@ -930,7 +1068,7 @@ export async function* generateStream(params: {
   const settings = await getSettings();
 
   // BYOK: stream via provider APIs
-  if (!settings.noren_pro_logged_in) {
+  if (!shouldUseBundledInference(settings)) {
     yield* byokGenerateStream(params);
     return;
   }
@@ -957,7 +1095,7 @@ export async function* generateStream(params: {
 
   if (!res.ok) {
     const text = await res.text();
-    yield { type: "error", message: text || `HTTP ${res.status}` };
+    yield { type: "error", message: extractErrorMessage(text || `HTTP ${res.status}`) };
     return;
   }
 
@@ -1050,7 +1188,7 @@ export async function repurpose(params: {
 }): Promise<RepurposeResult> {
   const settings = await getSettings();
 
-  if (settings.noren_pro_logged_in) {
+  if (shouldUseBundledInference(settings)) {
     const resp = await apiJson<{
       results: RepurposeFormatResult[];
       total_input_tokens: number;
@@ -1112,9 +1250,9 @@ async function byokRepurpose(params: {
 
     let result: GenerateResult;
     if (settings.provider.type === "anthropic") {
-      result = await byokAnthropic(settings.provider, apiKey, system, params.sourceContent);
+      result = await byokAnthropic(settings.provider, apiKey, system, params.sourceContent, false, maxTokens);
     } else {
-      result = await byokOpenAI(settings.provider, apiKey, system, params.sourceContent);
+      result = await byokOpenAI(settings.provider, apiKey, system, params.sourceContent, maxTokens);
     }
 
     return {
@@ -1128,12 +1266,21 @@ async function byokRepurpose(params: {
 
   const settled = await Promise.allSettled(promises);
   const results: RepurposeFormatResult[] = [];
-  for (const item of settled) {
-    if (item.status === "fulfilled") results.push(item.value);
+  const failedTargets: string[] = [];
+  for (const [index, item] of settled.entries()) {
+    if (item.status === "fulfilled") {
+      results.push(item.value);
+    } else {
+      failedTargets.push(targets[index]);
+    }
   }
 
   if (results.length === 0) {
     throw new Error("All target format generations failed.");
+  }
+
+  if (failedTargets.length > 0) {
+    throw new Error(`Repurpose failed for: ${failedTargets.join(", ")}`);
   }
 
   return {
@@ -1170,7 +1317,7 @@ export async function chatSend(params: {
 }): Promise<GenerateResult> {
   const settings = await getSettings();
 
-  if (settings.noren_pro_logged_in) {
+  if (shouldUseBundledInference(settings)) {
     const resp = await apiJson<{ content: string; input_tokens: number; output_tokens: number }>("/generate/", {
       method: "POST",
       body: JSON.stringify({
@@ -1497,8 +1644,7 @@ export async function resendOtp(): Promise<string> {
 }
 
 export async function norenProLogout(): Promise<void> {
-  await clearTokens();
-  await setInferenceMode("byok");
+  await clearNorenAuthState();
 }
 
 export async function getNorenProUsage(): Promise<NorenProStatus> {
@@ -1965,7 +2111,7 @@ async function* streamByokAnthropic(
 
   if (!res.ok) {
     const text = await res.text();
-    yield { type: "error", message: text || `Anthropic HTTP ${res.status}` };
+    yield { type: "error", message: extractErrorMessage(text || `Anthropic HTTP ${res.status}`) };
     return;
   }
 
@@ -2056,7 +2202,7 @@ async function* streamByokOpenAI(
 
   if (!res.ok) {
     const text = await res.text();
-    yield { type: "error", message: text || `HTTP ${res.status}` };
+    yield { type: "error", message: extractErrorMessage(text || `HTTP ${res.status}`) };
     return;
   }
 
