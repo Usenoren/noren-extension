@@ -105,12 +105,12 @@ src/
 
 | Permission | Why |
 |---|---|
-| `activeTab` + `scripting` | Inject selection toolbar and generated text |
 | `storage` | Settings, auth tokens, chat history |
 | `contextMenus` | "Weave with Noren" right-click option |
 | `sidePanel` | Main UI surface |
 | `nativeMessaging` | Secure key storage via Noren desktop app keychain |
 | `declarativeNetRequest` | Strip origin headers for direct API calls (BYOK) |
+| Host permissions | Direct calls to Anthropic, OpenAI, Gemini, and Noren APIs. `localhost` is included in development builds only. |
 
 ## Keychain Bridge (Optional)
 
@@ -122,6 +122,7 @@ If the [Noren desktop app](https://github.com/Usenoren/noren-app) is installed, 
 |---|---|
 | `npm run dev` | Watch mode build |
 | `npm run build` | Production build → `dist/` |
+| `npm run package` | Fresh production build + versioned zip for Chrome Web Store upload |
 | `npm run check` | Svelte + TypeScript type checking |
 
 ## License

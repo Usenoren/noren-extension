@@ -1,0 +1,54 @@
+const DEV_HOST_PERMISSIONS = [
+  "http://localhost/*",
+  "http://127.0.0.1/*",
+];
+
+export function createManifest({ isDev }: { isDev: boolean }) {
+  return {
+    manifest_version: 3,
+    name: "Noren",
+    version: "1.0.0",
+    description: "Writing That Sounds Like You. Rewrite, reply, or fix selected text in your voice on any site.",
+    permissions: [
+      "storage",
+      "contextMenus",
+      "sidePanel",
+      "declarativeNetRequest",
+      "nativeMessaging",
+    ],
+    side_panel: {
+      default_path: "sidepanel.html",
+    },
+    host_permissions: [
+      "https://api.anthropic.com/*",
+      "https://api.openai.com/*",
+      "https://generativelanguage.googleapis.com/*",
+      "https://api.usenoren.ai/*",
+      ...(isDev ? DEV_HOST_PERMISSIONS : []),
+    ],
+    action: {
+      default_popup: "popup.html",
+      default_icon: {
+        "16": "icons/icon-16.png",
+        "48": "icons/icon-48.png",
+        "128": "icons/icon-128.png",
+      },
+    },
+    background: {
+      service_worker: "src/background.ts",
+      type: "module",
+    },
+    content_scripts: [
+      {
+        matches: ["<all_urls>"],
+        js: ["src/content.ts"],
+        run_at: "document_idle",
+      },
+    ],
+    icons: {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png",
+    },
+  };
+}
