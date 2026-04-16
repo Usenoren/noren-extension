@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1280, height=800">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;1,9..144,300;1,9..144,400&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 1280px;
+    height: 800px;
+    overflow: hidden;
+    background: #F6F1EB;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    -webkit-font-smoothing: antialiased;
+  }
+  .content {
+    padding-top: 72px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+  }
+  .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #C44A2F;
+    margin-bottom: 16px;
+  }
+  .headline {
+    font-family: 'Fraunces', serif;
+    font-weight: 300;
+    font-style: italic;
+    font-size: 38px;
+    color: #1A1715;
+    letter-spacing: -0.015em;
+    margin-bottom: 12px;
+    text-align: center;
+  }
+  .sub {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 16px;
+    color: #8A93A6;
+    text-align: center;
+    margin-bottom: 44px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    max-width: 1000px;
+    width: 100%;
+    padding: 0 60px;
+    margin-bottom: 40px;
+  }
+  .site-card {
+    background: #FFFFFF;
+    border: 1px solid rgba(30, 49, 72, 0.08);
+    padding: 22px 22px 20px;
+    transition: none;
+  }
+  .site-card:nth-child(odd) {
+    border-left: 2px solid rgba(196, 74, 47, 0.2);
+  }
+  .site-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: #1A1715;
+    letter-spacing: 0.04em;
+    margin-bottom: 6px;
+  }
+  .site-desc {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 10.5px;
+    line-height: 1.45;
+    color: #8A93A6;
+  }
+  .footer-text {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 300;
+    font-size: 15px;
+    color: #8A93A6;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="content">
+  <div class="eyebrow">Works Everywhere</div>
+  <div class="headline">Any site. Any text field.</div>
+  <div class="sub">The extension activates on any selected text on any page.</div>
+  <div class="grid">
+    <div class="site-card">
+      <div class="site-name">Gmail</div>
+      <div class="site-desc">Rewrite emails in your voice</div>
+    </div>
+    <div class="site-card">
+      <div class="site-name">X</div>
+      <div class="site-desc">Draft threads that sound like you</div>
+    </div>
+    <div class="site-card">
+      <div class="site-name">LinkedIn</div>
+      <div class="site-desc">Reply to posts without the corporate tone</div>
+    </div>
+    <div class="site-card">
+      <div class="site-name">Substack</div>
+      <div class="site-desc">Edit drafts before publishing</div>
+    </div>
+    <div class="site-card">
+      <div class="site-name">Notion</div>
+      <div class="site-desc">Rewrite docs in your voice</div>
+    </div>
+    <div class="site-card">
+      <div class="site-name">Discord</div>
+      <div class="site-desc">Quick replies that sound like you</div>
+    </div>
+    <div class="site-card">
+      <div class="site-name">GitHub</div>
+      <div class="site-desc">PR descriptions and issue comments</div>
+    </div>
+    <div class="site-card">
+      <div class="site-name">Reddit</div>
+      <div class="site-desc">Comments that match your voice</div>
+    </div>
+  </div>
+  <div class="footer-text">And every other site you write on.</div>
+</div>
+</body>
+</html>

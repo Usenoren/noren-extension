@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=920, height=680">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;1,9..144,300;1,9..144,400&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 920px;
+    height: 680px;
+    overflow: hidden;
+    background: #1E3148;
+    -webkit-font-smoothing: antialiased;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 0.82fr;
+    height: 100%;
+    align-items: center;
+    gap: 40px;
+    padding: 0 56px;
+  }
+  .left {
+    padding: 20px 0;
+  }
+  .eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 22px;
+  }
+  .eyebrow-bar {
+    width: 20px;
+    height: 1px;
+    background: #D4663A;
+    opacity: 0.7;
+  }
+  .eyebrow-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #D4663A;
+  }
+  .headline {
+    font-family: 'Fraunces', serif;
+    font-weight: 300;
+    font-style: italic;
+    font-size: 44px;
+    line-height: 1.08;
+    color: #E8EDF2;
+    letter-spacing: -0.02em;
+    margin-bottom: 20px;
+  }
+  .subtext {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    color: #8A93A6;
+    max-width: 34ch;
+    margin-bottom: 26px;
+  }
+  .providers {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 300;
+    font-size: 13px;
+    color: rgba(232, 237, 242, 0.45);
+    margin-bottom: 10px;
+    letter-spacing: 0.01em;
+  }
+  .byok {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    color: #D4663A;
+  }
+  /* Right column: toolbar mock */
+  .right {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .mock-text-area {
+    position: relative;
+    width: 320px;
+  }
+  .mock-line {
+    font-family: 'Fraunces', serif;
+    font-weight: 300;
+    font-size: 11.5px;
+    line-height: 1.7;
+    color: rgba(232, 237, 242, 0.35);
+  }
+  .mock-highlight {
+    background: rgba(196, 74, 47, 0.12);
+    border-radius: 2px;
+    padding: 1px 2px;
+    color: rgba(232, 237, 242, 0.55);
+  }
+  .toolbar {
+    position: absolute;
+    top: calc(50% + 14px);
+    left: 24px;
+    width: 180px;
+    background: #1A1715;
+    border-left: 2px solid #C44A2F;
+    border-radius: 10px;
+    padding: 10px 12px;
+    box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.5), 0 4px 12px -4px rgba(0, 0, 0, 0.3);
+  }
+  .toolbar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 7px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid rgba(232, 237, 242, 0.08);
+  }
+  .toolbar-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #D4663A;
+  }
+  .toolbar-auto {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    letter-spacing: 0.08em;
+    color: rgba(232, 237, 242, 0.4);
+  }
+  .cmd-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .cmd {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    color: rgba(232, 237, 242, 0.72);
+    padding: 5px 7px;
+    border-radius: 5px;
+  }
+  .cmd.active {
+    background: rgba(232, 237, 242, 0.07);
+    color: #E8EDF2;
+  }
+  .cmd-arrow {
+    color: #D4663A;
+    font-weight: 600;
+    font-size: 11px;
+  }
+</style>
+</head>
+<body>
+<div class="grid">
+  <div class="left">
+    <div class="eyebrow">
+      <span class="eyebrow-bar"></span>
+      <span class="eyebrow-text">Chrome Extension</span>
+    </div>
+    <div class="headline">
+      Writing That<br>Sounds Like You.
+    </div>
+    <div class="subtext">
+      Highlight any text on any website. Noren rewrites, replies, or fixes it in your voice.
+    </div>
+    <div class="providers">Claude &middot; GPT &middot; Gemini &middot; Ollama</div>
+    <div class="byok">Free with your own API key</div>
+  </div>
+  <div class="right">
+    <div class="mock-text-area">
+      <div class="mock-line">Thanks for pulling that together. I had a few thoughts on the timeline.</div>
+      <div class="mock-line" style="margin-top: 8px;">
+        <span class="mock-highlight">The main risk is the dependency on the API migration, which could slip if the auth team doesn't finalize the token format by end of month.</span>
+      </div>
+      <div class="mock-line" style="margin-top: 8px;">If that lands on time, the rest of the plan looks solid to me. Happy to walk through the rollback steps on Thursday.</div>
+      <div class="mock-line" style="margin-top: 8px; opacity: 0.6;">Let me know if you want to loop in Sarah for the capacity review.</div>
+      <div class="toolbar">
+        <div class="toolbar-header">
+          <span class="toolbar-label">Noren</span>
+          <span class="toolbar-auto">Auto</span>
+        </div>
+        <ul class="cmd-list">
+          <li class="cmd active"><span class="cmd-arrow">&rsaquo;</span> Rewrite</li>
+          <li class="cmd"><span class="cmd-arrow">&rsaquo;</span> Reply</li>
+          <li class="cmd"><span class="cmd-arrow">&rsaquo;</span> Fix</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1280, height=800">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;1,9..144,300&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 1280px;
+    height: 800px;
+    overflow: hidden;
+    background: #1E3148;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    -webkit-font-smoothing: antialiased;
+  }
+  .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #D4663A;
+    margin-bottom: 16px;
+  }
+  .headline {
+    font-family: 'Fraunces', serif;
+    font-weight: 300;
+    font-style: italic;
+    font-size: 38px;
+    color: #E8EDF2;
+    letter-spacing: -0.015em;
+    margin-bottom: 48px;
+    text-align: center;
+  }
+  .cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+    max-width: 1020px;
+    width: 100%;
+    padding: 0 60px;
+    margin-bottom: 36px;
+  }
+  .card-wrap {}
+  .card-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    padding-left: 4px;
+  }
+  .label-muted { color: #8A93A6; }
+  .label-wine { color: #C44A2F; }
+  .card {
+    background: #FAF7F2;
+    border: 1px solid rgba(30, 49, 72, 0.1);
+    padding: 30px 28px;
+    min-height: 240px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .card-wine {
+    border-left: 3px solid #C44A2F;
+  }
+  .card-text {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 14.5px;
+    line-height: 1.7;
+    color: #1A1715;
+  }
+  .card-text.generic {
+    color: rgba(26, 23, 21, 0.7);
+  }
+  .card-text .strike {
+    text-decoration: line-through;
+    opacity: 0.4;
+  }
+  /* Stat strip */
+  .stats {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    color: #8A93A6;
+    text-align: center;
+  }
+  .stats .dot {
+    display: inline-block;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: #C44A2F;
+    margin: 0 10px;
+    vertical-align: middle;
+  }
+</style>
+</head>
+<body>
+<div class="eyebrow">Voice Consistency</div>
+<div class="headline">Same prompt. Your voice.</div>
+<div class="cards">
+  <div class="card-wrap">
+    <div class="card-label label-muted">Without Noren</div>
+    <div class="card">
+      <div class="card-text generic">
+        It is important to note that effective communication requires careful consideration of multiple factors. One might want to think about the various stakeholders involved and their respective needs. By leveraging best practices and maintaining a focus on continuous improvement, teams can achieve more impactful outcomes in their collaborative efforts.
+      </div>
+    </div>
+  </div>
+  <div class="card-wrap">
+    <div class="card-label label-wine">With Noren</div>
+    <div class="card card-wine">
+      <div class="card-text">
+        Most writing advice starts with the wrong question. Before you optimize for clarity, figure out what you are actually trying to say. The structure follows the thinking, not the other way around. If the reader walks away confused, it is usually because you were confused first and no amount of editing fixes a gap in reasoning.
+      </div>
+    </div>
+  </div>
+</div>
+<div class="stats">
+  90% coverage <span class="dot"></span> 0 fabrications
+</div>
+</body>
+</html>
