@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1280, height=800">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;1,9..144,300&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 1280px;
+    height: 800px;
+    overflow: hidden;
+    background: #1E3148;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    -webkit-font-smoothing: antialiased;
+  }
+  .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #D4663A;
+    margin-bottom: 16px;
+  }
+  .headline {
+    font-family: 'Fraunces', serif;
+    font-weight: 300;
+    font-style: italic;
+    font-size: 36px;
+    color: #E8EDF2;
+    letter-spacing: -0.015em;
+    margin-bottom: 40px;
+    text-align: center;
+  }
+  /* Manuscript card */
+  .manuscript {
+    width: 620px;
+    background: #FAF7F2;
+    border: 1px solid rgba(30, 49, 72, 0.1);
+    padding: 32px 30px 26px;
+    box-shadow: 0 30px 70px -24px rgba(0, 0, 0, 0.35), 0 8px 24px -8px rgba(0, 0, 0, 0.15);
+    margin-bottom: 32px;
+  }
+  .ms-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding-bottom: 16px;
+    margin-bottom: 18px;
+    border-bottom: 1px dashed rgba(30, 49, 72, 0.12);
+  }
+  .ms-title {
+    font-family: 'Fraunces', serif;
+    font-weight: 500;
+    font-size: 19px;
+    color: #1A1715;
+    letter-spacing: -0.01em;
+    margin-bottom: 5px;
+  }
+  .ms-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: #8A93A6;
+    letter-spacing: 0.04em;
+  }
+  .ms-meta b { color: #1A1715; font-weight: 600; }
+  .ms-folio {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: rgba(138, 147, 166, 0.7);
+    letter-spacing: 0.04em;
+    text-align: right;
+  }
+  .ms-folio b { color: #1A1715; font-weight: 600; }
+  .ms-section {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #C44A2F;
+    margin-bottom: 14px;
+  }
+  /* Pattern entry */
+  .pattern {
+    padding-bottom: 16px;
+    margin-bottom: 0;
+    border-bottom: 1px dashed rgba(30, 49, 72, 0.08);
+  }
+  .pattern-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .pattern-name {
+    font-family: 'Fraunces', serif;
+    font-weight: 500;
+    font-size: 16px;
+    color: #1A1715;
+    letter-spacing: -0.005em;
+  }
+  .confidence {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #C44A2F;
+    background: rgba(196, 74, 47, 0.08);
+    border: 1px solid rgba(196, 74, 47, 0.18);
+    padding: 2px 7px;
+    border-radius: 3px;
+  }
+  .pattern-body {
+    font-family: 'Fraunces', serif;
+    font-weight: 300;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #1A1715;
+    margin-bottom: 10px;
+  }
+  .examples {
+    list-style: none;
+    padding-left: 12px;
+    border-left: 1px dashed rgba(196, 74, 47, 0.3);
+  }
+  .examples li {
+    font-family: 'Fraunces', serif;
+    font-weight: 300;
+    font-style: italic;
+    font-size: 12px;
+    line-height: 1.55;
+    color: #8A93A6;
+    margin-bottom: 4px;
+  }
+  .examples li:last-child { margin-bottom: 0; }
+  /* Footer */
+  .ms-footer {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px dashed rgba(30, 49, 72, 0.08);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: #8A93A6;
+    letter-spacing: 0.04em;
+  }
+  .bottom-text {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 15px;
+    color: #8A93A6;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="eyebrow">Voice Profile</div>
+<div class="headline">A Markdown file that knows how you write.</div>
+
+<div class="manuscript">
+  <div class="ms-header">
+    <div>
+      <div class="ms-title">Voice Profile: Core Identity</div>
+      <div class="ms-meta">Extracted from <b>105 samples</b> &middot; ~300 lines</div>
+    </div>
+    <div class="ms-folio">
+      <div>Folio <b>03 / 23</b></div>
+      <div style="margin-top: 4px; font-size: 9.5px; color: rgba(138,147,166,0.5);">core-identity.md</div>
+    </div>
+  </div>
+
+  <div class="ms-section">Analogy Sources</div>
+
+  <div class="pattern">
+    <div class="pattern-head">
+      <span class="pattern-name">Building &amp; Construction</span>
+      <span class="confidence">Strong</span>
+    </div>
+    <div class="pattern-body">
+      Compares software architecture and team dynamics to physical buildings, foundations, plumbing, and load-bearing structures. The metaphor is treated as a recurring technical lens, not a one-off illustration.
+    </div>
+    <ul class="examples">
+      <li>"Your data layer is the foundation. Get it wrong and everything above it shifts."</li>
+      <li>"A good migration is a renovation, not a teardown. The walls you keep are the ones that already work."</li>
+    </ul>
+  </div>
+
+  <div class="ms-footer">Dozens of patterns, organized by section</div>
+</div>
+
+<div class="bottom-text">Human-readable. Fully editable. Yours to keep.</div>
+</body>
+</html>

@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1280, height=800">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;1,9..144,300&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 1280px;
+    height: 800px;
+    overflow: hidden;
+    background: #F6F1EB;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* Browser chrome */
+  .browser-bar {
+    height: 36px;
+    background: #EDEAE5;
+    border-bottom: 1px solid rgba(30, 49, 72, 0.08);
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    gap: 7px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .dot-r { background: #ff5f57; }
+  .dot-y { background: #febc2e; }
+  .dot-g { background: #28c840; }
+  .url-bar {
+    margin-left: 24px;
+    background: rgba(30, 49, 72, 0.05);
+    border-radius: 6px;
+    padding: 4px 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: #8A93A6;
+    letter-spacing: 0.02em;
+  }
+  .browser-noren {
+    margin-left: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #C44A2F;
+    background: rgba(196, 74, 47, 0.08);
+    padding: 3px 8px;
+    border-radius: 4px;
+  }
+  /* Email compose mock */
+  .email-wrap {
+    max-width: 780px;
+    margin: 48px auto 0;
+    background: #FFFFFF;
+    border: 1px solid rgba(30, 49, 72, 0.1);
+    border-radius: 10px;
+    box-shadow: 0 20px 60px -20px rgba(30, 49, 72, 0.15), 0 4px 16px -6px rgba(30, 49, 72, 0.08);
+  }
+  .email-header {
+    padding: 18px 28px 0;
+  }
+  .field {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(30, 49, 72, 0.06);
+  }
+  .field-label {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    color: #8A93A6;
+    min-width: 55px;
+  }
+  .field-value {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 13px;
+    color: #1A1715;
+  }
+  .field-value.muted { color: #8A93A6; }
+  /* Email body */
+  .email-body {
+    padding: 24px 28px 20px;
+    position: relative;
+  }
+  .email-text {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 14px;
+    line-height: 1.7;
+    color: #1A1715;
+  }
+  .email-text p { margin-bottom: 14px; }
+  .email-text p:last-child { margin-bottom: 0; }
+  .highlight-span {
+    background: rgba(196, 74, 47, 0.1);
+    border-radius: 3px;
+    padding: 2px 3px;
+    border-bottom: 2px solid rgba(196, 74, 47, 0.25);
+  }
+  /* Noren toolbar */
+  .noren-toolbar {
+    position: absolute;
+    left: 58px;
+    bottom: -92px;
+    width: 192px;
+    background: #1A1715;
+    border-left: 2px solid #C44A2F;
+    border-radius: 11px;
+    padding: 11px 13px;
+    box-shadow: 0 20px 50px -14px rgba(0, 0, 0, 0.45), 0 6px 16px -6px rgba(0, 0, 0, 0.25);
+    z-index: 10;
+  }
+  .tb-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 8px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid rgba(232, 237, 242, 0.08);
+  }
+  .tb-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #C44A2F;
+  }
+  .tb-auto {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8.5px;
+    letter-spacing: 0.08em;
+    color: rgba(232, 237, 242, 0.4);
+  }
+  .tb-cmds {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .tb-cmd {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    color: rgba(232, 237, 242, 0.7);
+    padding: 6px 8px;
+    border-radius: 6px;
+  }
+  .tb-cmd.active {
+    background: rgba(232, 237, 242, 0.07);
+    color: #E8EDF2;
+  }
+  .tb-arrow {
+    color: #C44A2F;
+    font-weight: 600;
+    font-size: 12px;
+  }
+  /* Footer / send area */
+  .email-footer {
+    padding: 14px 28px;
+    border-top: 1px solid rgba(30, 49, 72, 0.06);
+    display: flex;
+    align-items: center;
+  }
+  .send-btn {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    color: white;
+    background: rgba(30, 49, 72, 0.3);
+    border: none;
+    border-radius: 6px;
+    padding: 8px 22px;
+    cursor: default;
+  }
+  /* Annotation callout */
+  .annotation {
+    position: absolute;
+    right: 100px;
+    top: 480px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .annotation-line {
+    width: 60px;
+    height: 1px;
+    background: rgba(30, 49, 72, 0.15);
+    margin-top: 7px;
+    flex-shrink: 0;
+  }
+  .annotation-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: #8A93A6;
+    letter-spacing: 0.04em;
+    line-height: 1.5;
+    max-width: 180px;
+  }
+</style>
+</head>
+<body>
+<div class="browser-bar">
+  <span class="dot dot-r"></span>
+  <span class="dot dot-y"></span>
+  <span class="dot dot-g"></span>
+  <span class="url-bar">mail.google.com</span>
+  <span class="browser-noren">Noren</span>
+</div>
+
+<div class="email-wrap">
+  <div class="email-header">
+    <div class="field">
+      <span class="field-label">To:</span>
+      <span class="field-value muted">team@company.com</span>
+    </div>
+    <div class="field">
+      <span class="field-label">Subject:</span>
+      <span class="field-value">Re: Q2 planning</span>
+    </div>
+  </div>
+  <div class="email-body">
+    <div class="email-text">
+      <p>Thanks for pulling that together. I had a few thoughts on the timeline.</p>
+      <p><span class="highlight-span">The main risk is the dependency on the API migration, which could slip if the auth team doesn't finalize the token format by end of month. We should probably have a fallback plan in case that happens.</span></p>
+      <p>If that lands on time, the rest of the plan looks solid to me. Happy to walk through the rollback steps on Thursday.</p>
+      <p style="color: #8A93A6;">Best,<br>Alex</p>
+    </div>
+    <div class="noren-toolbar">
+      <div class="tb-header">
+        <span class="tb-label">Noren</span>
+        <span class="tb-auto">Auto</span>
+      </div>
+      <ul class="tb-cmds">
+        <li class="tb-cmd active"><span class="tb-arrow">&rsaquo;</span> Rewrite</li>
+        <li class="tb-cmd"><span class="tb-arrow">&rsaquo;</span> Reply</li>
+        <li class="tb-cmd"><span class="tb-arrow">&rsaquo;</span> Fix</li>
+      </ul>
+    </div>
+  </div>
+  <div class="email-footer">
+    <button class="send-btn">Send</button>
+  </div>
+</div>
+
+<div class="annotation">
+  <span class="annotation-line"></span>
+  <span class="annotation-text">Select text. Pick a command. Done.</span>
+</div>
+</body>
+</html>

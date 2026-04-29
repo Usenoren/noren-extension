@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1280, height=800">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;1,9..144,300;1,9..144,400&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 1280px;
+    height: 800px;
+    overflow: hidden;
+    background: #1E3148;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    -webkit-font-smoothing: antialiased;
+  }
+  .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #D4663A;
+    margin-bottom: 16px;
+  }
+  .headline {
+    font-family: 'Fraunces', serif;
+    font-weight: 300;
+    font-style: italic;
+    font-size: 38px;
+    color: #E8EDF2;
+    letter-spacing: -0.015em;
+    margin-bottom: 16px;
+    text-align: center;
+  }
+  .sub {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    color: rgba(232, 237, 242, 0.55);
+    text-align: center;
+    max-width: 52ch;
+    margin-bottom: 52px;
+  }
+  .providers {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 40px;
+  }
+  .provider-card {
+    width: 200px;
+    background: #1A1715;
+    border: 1px solid rgba(232, 237, 242, 0.08);
+    padding: 30px 26px 26px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+  .provider-name {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 400;
+    font-size: 19px;
+    color: #E8EDF2;
+    letter-spacing: -0.005em;
+    margin-bottom: 6px;
+  }
+  .provider-company {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #8A93A6;
+    margin-bottom: 14px;
+  }
+  .provider-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+  }
+  .dot-wine {
+    background: #C44A2F;
+    box-shadow: 0 0 0 3px rgba(196, 74, 47, 0.2);
+  }
+  .dot-green {
+    background: #2D7A4F;
+    box-shadow: 0 0 0 3px rgba(45, 122, 79, 0.2);
+  }
+  .upgrade {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.04em;
+    color: #8A93A6;
+    text-align: center;
+    margin-bottom: 14px;
+  }
+  .url {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 300;
+    font-size: 14px;
+    color: #D4663A;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="eyebrow">Bring Your Own Key</div>
+<div class="headline">Your key. Your provider. Your data.</div>
+<div class="sub">Free tier uses your own API key. Your writing goes directly to your provider. Noren never sees it.</div>
+
+<div class="providers">
+  <div class="provider-card">
+    <div class="provider-name">Claude</div>
+    <div class="provider-company">Anthropic</div>
+    <span class="provider-dot dot-wine"></span>
+  </div>
+  <div class="provider-card">
+    <div class="provider-name">GPT</div>
+    <div class="provider-company">OpenAI</div>
+    <span class="provider-dot dot-wine"></span>
+  </div>
+  <div class="provider-card">
+    <div class="provider-name">Gemini</div>
+    <div class="provider-company">Google</div>
+    <span class="provider-dot dot-wine"></span>
+  </div>
+  <div class="provider-card">
+    <div class="provider-name">Ollama</div>
+    <div class="provider-company">Local</div>
+    <span class="provider-dot dot-green"></span>
+  </div>
+</div>
+
+<div class="upgrade">Or upgrade to Pro for managed inference and smart model routing.</div>
+<div class="url">usenoren.ai</div>
+</body>
+</html>
