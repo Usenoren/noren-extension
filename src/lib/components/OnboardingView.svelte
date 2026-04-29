@@ -197,10 +197,26 @@
         Get Started with Noren Pro
       </button>
 
+      <!-- Returning user: jump straight to signin, skip palette -->
+      <button
+        onclick={() => { pendingPath = "signin"; authMode = "login"; screen = "signin"; }}
+        class="w-full mt-3 py-2.5 text-xs font-medium transition-all cursor-pointer rounded-md flex items-center justify-center gap-2"
+        style="background: transparent; border: 1px solid rgba(200,212,221,0.22); color: var(--color-primary);"
+        onmouseenter={(e) => { e.currentTarget.style.borderColor = 'rgba(200,212,221,0.4)'; e.currentTarget.style.background = 'rgba(200,212,221,0.04)'; }}
+        onmouseleave={(e) => { e.currentTarget.style.borderColor = 'rgba(200,212,221,0.22)'; e.currentTarget.style.background = 'transparent'; }}
+      >
+        <svg class="w-3.5 h-3.5 opacity-85" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+          <polyline points="10 17 15 12 10 7"/>
+          <line x1="15" y1="12" x2="3" y2="12"/>
+        </svg>
+        Sign in to existing account
+      </button>
+
       <!-- BYOK link -->
       <button
         onclick={() => { pendingPath = "byok"; screen = "palette"; }}
-        class="text-[11px] text-muted hover:text-secondary transition-colors cursor-pointer mt-5"
+        class="text-[11px] text-muted hover:text-secondary transition-colors cursor-pointer mt-4"
       >
         Use my own provider instead
       </button>
