@@ -3,6 +3,7 @@
  */
 export function friendlyError(raw: unknown): string {
   const msg = extractMessage(raw);
+  const lower = msg.toLowerCase();
 
   // Generation limit (server-enforced monthly cap)
   if (msg.includes("Monthly generation limit")) {
@@ -50,10 +51,16 @@ export function friendlyError(raw: unknown): string {
   }
 
   // Auth errors
+  if (lower.includes("email not verified")) {
+    return "Verify your email to continue.";
+  }
   if (msg.includes("401") || msg.includes("Unauthorized") || msg.includes("invalid_api_key") || msg.includes("Invalid API key")) {
     return "Invalid API key. Check your key in Settings.";
   }
   if (msg.includes("403") || msg.includes("Forbidden")) {
+    if (lower.includes("ollama") || lower.includes("localhost") || lower.includes("127.0.0.1")) {
+      return "Ollama rejected the extension request. Restart Ollama after allowing browser extension origins, or use Noren Pro/BYOK cloud provider.";
+    }
     if (msg.includes("verified") || msg.includes("verification")) {
       return "Please verify your email first. Check Account settings.";
     }

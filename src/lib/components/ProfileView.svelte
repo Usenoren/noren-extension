@@ -13,6 +13,7 @@
     syncProfileDown,
     getSyncStatus,
     createCheckout,
+    createExportUnlockCheckout,
     guidedProfileEdit,
     getSettings,
     type ProfileContent,
@@ -27,9 +28,16 @@
     canExport,
     canLivingProfile,
     canSync,
+    exportUnlockRemainingCents,
+    exportUnlockProgress,
+    isFoundingMember,
     isPro,
     refresh as refreshSubscription,
   } from "$lib/stores/subscription.svelte";
+  import {
+    refresh as refreshBillingConfig,
+    extractionAmountLabel,
+  } from "$lib/stores/billing-config.svelte";
   import { friendlyError } from "$lib/utils/errors";
   import LoadingSpinner from "./LoadingSpinner.svelte";
   import loomIdleUrl from "../../assets/loom-idle.png";
@@ -97,8 +105,28 @@
 
   // --- Init ---
   $effect(() => {
+    refreshBillingConfig();
     loadProfile();
+
+    const handleProfileRefresh = () => {
+      loadProfile();
+    };
+    window.addEventListener("noren:auth-changed", handleProfileRefresh);
+
+    return () => {
+      window.removeEventListener("noren:auth-changed", handleProfileRefresh);
+    };
   });
+
+  function notifyProfileChanged() {
+    window.dispatchEvent(new CustomEvent("noren:profile-changed"));
+  }
+
+  async function loadRefreshHistory() {
+    refreshHistory = await getRefreshHistory(20, 0).catch(() => []);
+    expandedEntryId = refreshHistory[0]?.id ?? null;
+    expandedDiffSection = null;
+  }
 
   async function loadProfile() {
     isLoading = true;
@@ -123,7 +151,7 @@
           syncStatus = await getSyncStatus().catch(() => null);
         }
         if (canLivingProfile()) {
-          refreshHistory = await getRefreshHistory(10).catch(() => []);
+          await loadRefreshHistory();
         }
       }
     } catch (e) {
@@ -161,6 +189,7 @@
       saveSuccess = true;
       setTimeout(() => { saveSuccess = false; }, 2000);
       await loadProfile();
+      notifyProfileChanged();
     } catch (e) {
       error = friendlyError(e);
     }
@@ -179,6 +208,7 @@
       saveSuccess = true;
       setTimeout(() => { saveSuccess = false; }, 2000);
       await loadProfile();
+      notifyProfileChanged();
     } catch (e) {
       error = friendlyError(e);
     }
@@ -195,6 +225,21 @@
     try {
       const result = await createCheckout(target);
       window.open(result.checkout_url, "_blank");
+    } catch (e) {
+      error = friendlyError(e);
+    }
+  }
+
+  async function handleExportUnlock() {
+    error = "";
+    try {
+      const result = await createExportUnlockCheckout();
+      if (result.checkout_url === "dev://granted" || result.session_id === "already_unlocked") {
+        await refreshSubscription();
+        await loadProfile();
+      } else {
+        window.open(result.checkout_url, "_blank");
+      }
     } catch (e) {
       error = friendlyError(e);
     }
@@ -225,11 +270,13 @@
     try {
       await uploadEditLog();
       const result = await refreshLivingProfile();
-      refreshMessage = `${result.message} (${result.sections_updated} section${result.sections_updated !== 1 ? "s" : ""} updated)`;
+      const updatedCount = result.sections_updated.length;
+      refreshMessage = `${result.message} (${updatedCount} section${updatedCount !== 1 ? "s" : ""} updated)`;
       latestObservations = result.observations || [];
       editCount = 0;
-      refreshHistory = await getRefreshHistory(10).catch(() => []);
+      await loadRefreshHistory();
       await loadProfile();
+      notifyProfileChanged();
     } catch (e) {
       error = friendlyError(e);
     } finally {
@@ -243,8 +290,9 @@
     try {
       await rollbackProfile();
       showRollbackConfirm = false;
-      refreshHistory = await getRefreshHistory(10).catch(() => []);
+      await loadRefreshHistory();
       await loadProfile();
+      notifyProfileChanged();
     } catch (e) {
       error = friendlyError(e);
     } finally {
@@ -323,6 +371,7 @@
       if (result.edited) {
         guidedInstruction = "";
         await loadProfile();
+        notifyProfileChanged();
       }
     } catch (e) {
       guidedError = friendlyError(e);
@@ -423,7 +472,7 @@
               onclick={() => handleUpgrade("extraction")}
               class="text-[10px] text-secondary font-medium cursor-pointer hover:text-foreground uppercase tracking-wide"
             >
-              One-time $19
+              {extractionAmountLabel(isFoundingMember())} one-time
             </button>
             <span class="text-[10px] text-muted">or</span>
             <button
@@ -839,9 +888,22 @@
                           </div>
                         {/if}
 
-                        {#if entry.diffs.length > 0}
+                        {#if entry.sections_updated.length > 0}
                           <div>
                             <span class="text-[9px] uppercase tracking-wide text-muted font-medium">Changes</span>
+                            <div class="mt-1 flex flex-wrap gap-1.5">
+                              {#each entry.sections_updated as section}
+                                <span class="px-2 py-1 rounded-md border border-border text-[10px] text-muted">
+                                  {formatSectionName(section)}
+                                </span>
+                              {/each}
+                            </div>
+                          </div>
+                        {/if}
+
+                        {#if entry.diffs.length > 0}
+                          <div>
+                            <span class="text-[9px] uppercase tracking-wide text-muted font-medium">Diffs</span>
                             <div class="mt-1 flex flex-col gap-1">
                               {#each entry.diffs as diff}
                                 {@const isDiffOpen = expandedDiffSection === diff.section}
@@ -926,9 +988,16 @@
           >
             {isExporting ? "..." : "Export"}
           </button>
+        {:else if exportUnlockProgress() != null}
+          <button
+            onclick={handleExportUnlock}
+            class="pv-footer-btn"
+          >
+            Export <span class="text-[8px] text-secondary font-medium">${Math.round((exportUnlockRemainingCents() || 0) / 100)}</span>
+          </button>
         {:else}
           <button
-            onclick={() => handleUpgrade("export")}
+            onclick={handleExportUnlock}
             class="pv-footer-btn"
           >
             Export <span class="text-[8px] text-secondary font-medium">$</span>
@@ -1070,7 +1139,7 @@
                   onclick={() => handleUpgrade("extraction")}
                   class="text-[10px] text-secondary font-medium cursor-pointer hover:text-foreground uppercase tracking-wide"
                 >
-                  One-time $19
+                  {extractionAmountLabel(isFoundingMember())} one-time
                 </button>
                 <span class="text-[10px] text-muted">or</span>
                 <button

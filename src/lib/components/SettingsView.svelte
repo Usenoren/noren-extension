@@ -14,6 +14,9 @@
     norenProLogout,
     verifyEmail,
     resendOtp,
+    requestPasswordReset,
+    resetPassword,
+    getNorenProStatus,
     getNorenProUsage,
     getSubscriptionStatus,
     createCheckout,
@@ -30,6 +33,13 @@
     type SubscriptionStatus,
     isKeychainAvailable,
   } from "$lib/api/noren";
+  import {
+    refresh as refreshBillingConfig,
+    proMonthlyAmountLabel,
+    proMonthlyIntervalLabel,
+    proMonthlyFullLabel,
+    proPricingNote,
+  } from "$lib/stores/billing-config.svelte";
   import { friendlyError, isAuthSessionError } from "$lib/utils/errors";
   import LoadingSpinner from "./LoadingSpinner.svelte";
 
@@ -56,6 +66,13 @@
   // Noren Pro state
   let proEmail = $state("");
   let proPassword = $state("");
+  let passwordResetOpen = $state(false);
+  let passwordResetLoading = $state(false);
+  let passwordResetMessage = $state("");
+  let passwordResetEmail = $state("");
+  let passwordResetCode = $state("");
+  let passwordResetNewPassword = $state("");
+  let passwordResetConfirmPassword = $state("");
   let proLoading = $state(false);
   let proStatus = $state<NorenProStatus | null>(null);
   let authMode = $state<"login" | "signup">("login");
@@ -111,12 +128,14 @@
   let isTrial = $derived(subscription?.is_trial === true);
   let isProPaid = $derived(subscription?.tier === "pro" && !subscription?.is_trial);
   let isFree = $derived(!isTrial && !isProPaid);
+  let isFoundingMember = $derived(subscription?.is_founding_member === true);
 
   const tiers = [
-    { id: "pro", label: "Noren Pro", price: "$7", period: "/mo", desc: "Everything: extraction, inference, living profile, sync" },
-  ] as const;
+    { id: "pro", label: "Noren Pro", desc: "Everything: extraction, inference, living profile, sync" },
+  ];
 
   $effect(() => {
+    refreshBillingConfig();
     loadSettings();
   });
 
@@ -183,9 +202,22 @@
 
       if (settings.noren_pro_logged_in) {
         try {
+          const localStatus = await getNorenProStatus();
+          if (!localStatus.email_verified) {
+            proStatus = localStatus;
+            proEmail = localStatus.email || proEmail;
+            pendingVerification = true;
+            subscription = null;
+            return;
+          }
           proStatus = await getNorenProUsage();
           try {
             subscription = await getSubscriptionStatus();
+            if (subscription.email_verified === false) {
+              proEmail = proStatus.email || proEmail;
+              pendingVerification = true;
+              return;
+            }
           } catch {
             subscription = null;
           }
@@ -310,6 +342,7 @@
     try {
       await setInferenceMode(mode);
       await loadSettings();
+      window.dispatchEvent(new CustomEvent("noren:auth-changed", { detail: { mode } }));
     } catch (e) {
       error = friendlyError(e);
     }
@@ -321,13 +354,21 @@
     error = "";
     try {
       if (authMode === "signup") {
-        await norenProSignup(proEmail.trim(), proPassword.trim());
+        const status = await norenProSignup(proEmail.trim(), proPassword.trim());
+        proEmail = status.email || proEmail;
         pendingVerification = true;
         otpMessage = "Check your email for a verification code.";
         proPassword = "";
         startResendCooldown();
       } else {
-        await norenProLogin(proEmail.trim(), proPassword.trim());
+        const status = await norenProLogin(proEmail.trim(), proPassword.trim());
+        if (!status.email_verified) {
+          proEmail = status.email || proEmail;
+          proPassword = "";
+          pendingVerification = true;
+          otpMessage = "Enter the verification code we sent to your email.";
+          return;
+        }
         proEmail = "";
         proPassword = "";
         await handleModeSwitch("noren_pro");
@@ -336,6 +377,66 @@
       error = friendlyError(e);
     } finally {
       proLoading = false;
+    }
+  }
+
+  function switchAuthMode(mode: "login" | "signup") {
+    authMode = mode;
+    error = "";
+    passwordResetOpen = false;
+  }
+
+  async function handleAuthModeAction(mode: "login" | "signup") {
+    if (authMode !== mode) {
+      switchAuthMode(mode);
+      return;
+    }
+    await handleProAuth();
+  }
+
+  async function handleRequestPasswordReset() {
+    const targetEmail = (passwordResetEmail || proEmail).trim();
+    if (!targetEmail) {
+      error = "Enter your email first.";
+      return;
+    }
+    passwordResetLoading = true;
+    error = "";
+    passwordResetMessage = "";
+    try {
+      passwordResetEmail = targetEmail;
+      passwordResetMessage = await requestPasswordReset(targetEmail);
+    } catch (e) {
+      error = friendlyError(e);
+    } finally {
+      passwordResetLoading = false;
+    }
+  }
+
+  async function handleResetPassword() {
+    if (!passwordResetEmail.trim() || !passwordResetCode.trim() || !passwordResetNewPassword) return;
+    if (passwordResetNewPassword !== passwordResetConfirmPassword) {
+      error = "Passwords don't match.";
+      return;
+    }
+    passwordResetLoading = true;
+    error = "";
+    try {
+      passwordResetMessage = await resetPassword(
+        passwordResetEmail.trim(),
+        passwordResetCode.trim(),
+        passwordResetNewPassword,
+      );
+      authMode = "login";
+      proEmail = passwordResetEmail.trim();
+      proPassword = "";
+      passwordResetCode = "";
+      passwordResetNewPassword = "";
+      passwordResetConfirmPassword = "";
+    } catch (e) {
+      error = friendlyError(e);
+    } finally {
+      passwordResetLoading = false;
     }
   }
 
@@ -611,9 +712,12 @@
           <div class="sv-upgrade-name">Upgrade to Pro</div>
           <div class="sv-upgrade-desc">Inference, extraction, living profile, sync</div>
         </div>
-        <div class="sv-upgrade-price">$7<span class="sv-upgrade-per">/mo</span></div>
+        <div class="sv-upgrade-price">{proMonthlyAmountLabel(isFoundingMember)}<span class="sv-upgrade-per">{proMonthlyIntervalLabel()}</span></div>
         <span class="sv-upgrade-arrow">&rsaquo;</span>
       </button>
+      {#if proPricingNote(isFoundingMember)}
+        <div class="sv-no-inference">{proPricingNote(isFoundingMember)}</div>
+      {/if}
     {/if}
 
     <div class="sv-body">
@@ -671,7 +775,7 @@
                     <span class="sv-sub-name">{t.label}</span>
                     <span class="sv-sub-desc">{t.desc}</span>
                   </div>
-                  <span class="sv-sub-price">{t.price}<span class="sv-sub-per">{t.period}</span></span>
+                  <span class="sv-sub-price">{proMonthlyFullLabel(isFoundingMember)}</span>
                 </button>
               {/each}
             </div>
@@ -732,16 +836,50 @@
                 <span class="text-[9px] text-muted" style="text-transform: uppercase; letter-spacing: 0.08em;">or</span>
                 <div class="divider-thread" style="flex: 1;"></div>
               </div>
-              <input type="email" bind:value={proEmail} class="sv-input" placeholder="Email" />
-              <input type="password" bind:value={proPassword} onkeydown={(e) => { if (e.key === "Enter") handleProAuth(); }} class="sv-input" placeholder="Password" />
-              <div class="sv-auth-actions">
-                <button class="sv-btn-fill sv-auth-btn" onclick={() => { authMode = "login"; handleProAuth(); }} disabled={proLoading || !proEmail.trim() || !proPassword.trim()}>
-                  {#if proLoading && authMode === "login"}<LoadingSpinner />{:else}Sign in{/if}
+              {#if passwordResetOpen}
+                <input type="email" bind:value={passwordResetEmail} class="sv-input" placeholder="Email" />
+                <button class="sv-btn-secondary sv-btn-full" onclick={handleRequestPasswordReset} disabled={passwordResetLoading || !passwordResetEmail.trim()}>
+                  {#if passwordResetLoading}<LoadingSpinner />{:else}Send reset code{/if}
                 </button>
-                <button class="sv-btn-secondary sv-auth-btn" onclick={() => { authMode = "signup"; handleProAuth(); }} disabled={proLoading || !proEmail.trim() || !proPassword.trim()}>
-                  {#if proLoading && authMode === "signup"}<LoadingSpinner />{:else}Create account{/if}
+                <input type="text" bind:value={passwordResetCode} class="sv-input" placeholder="Reset code" autocomplete="one-time-code" />
+                <input type="password" bind:value={passwordResetNewPassword} class="sv-input" placeholder="New password" />
+                <input
+                  type="password"
+                  bind:value={passwordResetConfirmPassword}
+                  onkeydown={(e) => { if (e.key === "Enter") handleResetPassword(); }}
+                  class="sv-input"
+                  placeholder="Confirm new password"
+                />
+                <button class="sv-btn-fill sv-btn-full" onclick={handleResetPassword} disabled={passwordResetLoading || !passwordResetEmail.trim() || !passwordResetCode.trim() || !passwordResetNewPassword}>
+                  Reset password
                 </button>
-              </div>
+                {#if passwordResetMessage}<p class="text-[10px] text-secondary leading-relaxed">{passwordResetMessage}</p>{/if}
+                <button class="sv-link-btn" onclick={() => { passwordResetOpen = false; error = ""; }}>
+                  Back to sign in
+                </button>
+              {:else}
+                <input type="email" bind:value={proEmail} class="sv-input" placeholder="Email" />
+                <input type="password" bind:value={proPassword} onkeydown={(e) => { if (e.key === "Enter") handleProAuth(); }} class="sv-input" placeholder="Password" />
+                <div class="sv-auth-actions">
+                  <button
+                    class="{authMode === 'login' ? 'sv-btn-fill' : 'sv-btn-secondary'} sv-auth-btn"
+                    onclick={() => handleAuthModeAction("login")}
+                    disabled={authMode === "login" && (proLoading || !proEmail.trim() || !proPassword.trim())}
+                  >
+                    {#if proLoading && authMode === "login"}<LoadingSpinner />{:else}Sign in{/if}
+                  </button>
+                  <button
+                    class="{authMode === 'signup' ? 'sv-btn-fill' : 'sv-btn-secondary'} sv-auth-btn"
+                    onclick={() => handleAuthModeAction("signup")}
+                    disabled={authMode === "signup" && (proLoading || !proEmail.trim() || !proPassword.trim())}
+                  >
+                    {#if proLoading && authMode === "signup"}<LoadingSpinner />{:else}Create account{/if}
+                  </button>
+                </div>
+                <button class="sv-link-btn" onclick={() => { passwordResetOpen = true; passwordResetEmail = proEmail; error = ""; passwordResetMessage = ""; }}>
+                  Forgot password?
+                </button>
+              {/if}
             </div>
           </div>
 
@@ -787,7 +925,7 @@
                 <select bind:value={modelInput} onchange={handleModelSave} class="sv-select">{#each ollamaModels as m}<option value={m}>{m}</option>{/each}</select>
               {:else}
                 <div class="flex gap-2">
-                  <input type="text" bind:value={modelInput} class="sv-input" style="flex:1" placeholder={isAnthropicType ? "claude-sonnet-4-6" : isOpenAI ? "gpt-4o" : isGemini ? "gemini-2.0-flash" : "Model ID"} />
+                  <input type="text" bind:value={modelInput} class="sv-input" style="flex:1" placeholder={isAnthropicType ? "claude-sonnet-4-6" : isOpenAI ? "gpt-4o" : isGemini ? "gemini-flash-latest" : "Model ID"} />
                   <button class="sv-btn-outline" onclick={handleModelSave}>Save</button>
                 </div>
                 {#if isOllama}<p class="text-[10px] text-warning">Could not detect models. Is Ollama running?</p>{/if}
@@ -1431,8 +1569,6 @@
   .sv-sub-name { font-size: 12px; font-weight: 600; display: block; }
   .sv-sub-desc { font-size: 10px; color: var(--color-muted); display: block; margin-top: 2px; }
   .sv-sub-price { font-size: 12px; font-weight: 600; color: var(--color-secondary); }
-  .sv-sub-per { font-size: 10px; font-weight: 400; color: var(--color-muted); }
-
   /* ── Results ── */
   .sv-result {
     padding: 8px 12px;

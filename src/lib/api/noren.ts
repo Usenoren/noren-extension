@@ -16,6 +16,34 @@ export interface GenerateResult {
   output_tokens: number;
 }
 
+export interface SyncedGenerationManifestEntry {
+  generation_id: string;
+  format: string;
+  prompt: string;
+  updated_at: string;
+  size_bytes: number;
+  is_deleted: boolean;
+  was_edited: boolean;
+}
+
+export interface SyncedGeneration {
+  generation_id: string;
+  prompt: string;
+  output: string;
+  format: string;
+  mode: string;
+  model: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  quick_action: string | null;
+  edits: unknown[];
+  edit_count: number;
+  was_edited: boolean;
+  time_to_first_edit: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface FixSpan {
   start: number;
   end: number;
@@ -46,6 +74,7 @@ export interface SettingsInfo {
 export interface NorenProStatus {
   logged_in: boolean;
   email: string | null;
+  email_verified: boolean;
   inference_mode: string;
   tokens_used: number | null;
   tokens_limit: number | null;
@@ -57,6 +86,8 @@ export interface NorenProStatus {
 export interface SubscriptionStatus {
   tier: "free" | "pro" | "teams";
   active: boolean;
+  email_verified: boolean;
+  is_founding_member: boolean;
   can_extract: boolean;
   can_generate_bundled: boolean;
   can_living_profile: boolean;
@@ -69,6 +100,7 @@ export interface SubscriptionStatus {
   current_period_end: string | null;
   cancel_at_period_end: boolean;
   one_time_purchases: string[];
+  extraction_credits_remaining: number | null;
   export_unlock_remaining_cents: number | null;
   export_unlock_progress: number | null;
 }
@@ -76,6 +108,21 @@ export interface SubscriptionStatus {
 export interface CheckoutResult {
   checkout_url: string;
   session_id: string;
+}
+
+export interface BillingPublicConfig {
+  pro_monthly_amount_label: string;
+  pro_monthly_interval_label: string;
+  pro_monthly_full_label: string;
+  pro_pricing_note: string;
+  pro_founding_monthly_amount_label: string;
+  pro_founding_monthly_full_label: string;
+  pro_founding_pricing_note: string;
+  extraction_amount_label: string;
+  extraction_cta_label: string;
+  extraction_founding_amount_label: string;
+  extraction_founding_cta_label: string;
+  default_trial_days: number;
 }
 
 export interface ComparisonResult {
@@ -127,7 +174,7 @@ export interface ProfileContent {
 }
 
 export interface ChatMessage {
-  role: "user" | "assistant";
+  role: "system" | "user" | "assistant";
   content: string;
 }
 
@@ -162,7 +209,7 @@ export interface GoogleOAuthPollResult {
 
 export interface RefreshResponse {
   refreshed: boolean;
-  sections_updated: number;
+  sections_updated: string[];
   message: string;
   observations: string[];
   history_id: string;
@@ -187,7 +234,7 @@ export interface RefreshHistoryEntry {
   id: string;
   diffs: SectionDiff[];
   observations: string[];
-  sections_updated: number;
+  sections_updated: string[];
   edits_analyzed: number;
   samples_analyzed: number;
   generations_analyzed: number;
@@ -230,12 +277,16 @@ async function getRefreshToken(): Promise<string | null> {
   return result.refresh_token || null;
 }
 
-async function setTokens(access: string, refresh: string): Promise<void> {
-  await chrome.storage.local.set({ auth_token: access, refresh_token: refresh });
+async function setTokens(access: string, refresh: string, emailVerified?: boolean): Promise<void> {
+  await chrome.storage.local.set({
+    auth_token: access,
+    refresh_token: refresh,
+    ...(emailVerified !== undefined ? { auth_email_verified: emailVerified } : {}),
+  });
 }
 
 async function clearTokens(): Promise<void> {
-  await chrome.storage.local.remove(["auth_token", "refresh_token"]);
+  await chrome.storage.local.remove(["auth_token", "refresh_token", "auth_email", "auth_email_verified"]);
 }
 
 function shouldUseBundledInference(settings: SettingsInfo): boolean {
@@ -389,9 +440,28 @@ async function bgFetch(url: string, init?: RequestInit): Promise<Response> {
     init: { method: init?.method, headers: init?.headers, body: init?.body },
   });
   return new Response(result.text, {
-    status: result.status,
+    status: result.status || 502,
     statusText: result.ok ? "OK" : "Error",
   });
+}
+
+function shouldProxyOpenAICompatible(provider: ProviderConfig): boolean {
+  if (provider.name === "custom" || provider.name === "ollama") return true;
+  try {
+    const host = new URL(provider.baseUrl).hostname;
+    return host === "localhost" || host === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+
+function providerHttpError(provider: ProviderConfig, status: number, text: string): string {
+  const message = extractErrorMessage(text || `HTTP ${status}`);
+  const isLocal = shouldProxyOpenAICompatible(provider);
+  if (status === 403 && isLocal) {
+    return `${provider.name} local provider rejected the extension request: ${message || "HTTP 403"}`;
+  }
+  return message || `HTTP ${status}`;
 }
 
 // ============================================================
@@ -481,7 +551,7 @@ async function apiJson<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await apiFetch(path, options);
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || `HTTP ${res.status}`);
+    throw new Error(extractErrorMessage(text || `HTTP ${res.status}`));
   }
   return res.json();
 }
@@ -509,7 +579,7 @@ const PROVIDER_PRESETS: Record<string, ProviderConfig> = {
     name: "gemini",
     type: "openai_compatible",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
-    model: "gemini-2.0-flash",
+    model: "gemini-flash-latest",
     requiresKey: true,
   },
   ollama: {
@@ -678,16 +748,17 @@ export async function listCustomModels(baseUrl: string): Promise<{ id: string; n
 // ============================================================
 
 export async function listGeminiModels(): Promise<{ id: string; name: string }[]> {
+  const latestFlash = { id: "gemini-flash-latest", name: "Gemini Flash Latest" };
   const settings = await getSettings();
   const apiKey = await getApiKey(settings.provider.name);
-  if (!apiKey) return [];
+  if (!apiKey) return [latestFlash];
   try {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`
     );
-    if (!res.ok) return [];
+    if (!res.ok) return [latestFlash];
     const data = await res.json();
-    return (data.models || [])
+    const models = (data.models || [])
       .filter((m: { name: string; supportedGenerationMethods?: string[] }) =>
         m.supportedGenerationMethods?.includes("generateContent") &&
         m.name.replace("models/", "").startsWith("gemini-")
@@ -696,8 +767,11 @@ export async function listGeminiModels(): Promise<{ id: string; name: string }[]
         id: m.name.replace("models/", ""),
         name: m.displayName || m.name.replace("models/", ""),
       }));
+    return models.some((m: { id: string }) => m.id === latestFlash.id)
+      ? models
+      : [latestFlash, ...models];
   } catch {
-    return [];
+    return [latestFlash];
   }
 }
 
@@ -708,7 +782,7 @@ export async function listGeminiModels(): Promise<{ id: string; name: string }[]
 export async function listOllamaModels(baseUrl?: string): Promise<string[]> {
   const host = (baseUrl || "http://localhost:11434").replace(/\/v1\/?$/, "");
   try {
-    const res = await fetch(`${host}/api/tags`);
+    const res = await bgFetch(`${host}/api/tags`);
     if (!res.ok) return [];
     const data = await res.json();
     return (data.models || []).map((m: { name: string }) => m.name);
@@ -899,8 +973,7 @@ async function byokOpenAI(
     headers["Authorization"] = `Bearer ${apiKey}`;
   }
 
-  const isCustom = provider.name === "custom";
-  const doFetch = isCustom ? bgFetch : fetch;
+  const doFetch = shouldProxyOpenAICompatible(provider) ? bgFetch : fetch;
   const res = await doFetch(`${provider.baseUrl}/chat/completions`, {
     method: "POST",
     headers,
@@ -916,7 +989,7 @@ async function byokOpenAI(
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || `HTTP ${res.status}`);
+    throw new Error(providerHttpError(provider, res.status, text));
   }
 
   const data = await res.json();
@@ -996,8 +1069,7 @@ async function byokChat(
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
 
-  const isCustomChat = settings.provider.name === "custom";
-  const doChatFetchOAI = isCustomChat ? bgFetch : fetch;
+  const doChatFetchOAI = shouldProxyOpenAICompatible(settings.provider) ? bgFetch : fetch;
   const res = await doChatFetchOAI(`${settings.provider.baseUrl}/chat/completions`, {
     method: "POST",
     headers,
@@ -1007,7 +1079,7 @@ async function byokChat(
       messages: [{ role: "system", content: system }, ...processed],
     }),
   });
-  if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+  if (!res.ok) throw new Error(providerHttpError(settings.provider, res.status, await res.text()));
   const data = await res.json();
   return {
     text: data.choices?.[0]?.message?.content || "",
@@ -1028,6 +1100,7 @@ export async function generate(params: {
   context?: string;
   attachments?: string[];
   quickAction?: string;
+  generationId?: string;
 }): Promise<GenerateResult> {
   const settings = await getSettings();
 
@@ -1042,6 +1115,7 @@ export async function generate(params: {
         context: params.context,
         attachments: params.attachments,
         quick_action: params.quickAction,
+        generation_id: params.generationId,
       }),
     });
     return { text: resp.content, input_tokens: resp.input_tokens, output_tokens: resp.output_tokens };
@@ -1063,6 +1137,7 @@ export async function* generateStream(params: {
   context?: string;
   attachments?: string[];
   quickAction?: string;
+  generationId?: string;
   signal?: AbortSignal;
 }): AsyncGenerator<StreamEvent> {
   const settings = await getSettings();
@@ -1089,6 +1164,7 @@ export async function* generateStream(params: {
       context: params.context,
       attachments: params.attachments,
       quick_action: params.quickAction,
+      generation_id: params.generationId,
       stream: true,
     }),
   });
@@ -1153,14 +1229,75 @@ export async function generateComparison(params: {
   context?: string;
   attachments?: string[];
 }): Promise<ComparisonResult> {
-  // Comparison only available via Pro
-  return apiJson<ComparisonResult>("/generate/", {
-    method: "POST",
-    body: JSON.stringify({
-      ...params,
-      compare: true,
-    }),
+  const withVoice = await generate({
+    prompt: params.prompt,
+    format: params.format,
+    level: "guided",
+    context: params.context,
+    attachments: params.attachments,
   });
+
+  let userContent = params.context?.trim()
+    ? `Context:\n${params.context}\n\nRequest: ${params.prompt}`
+    : params.prompt;
+  if (params.attachments?.length) {
+    for (const [index, attachment] of params.attachments.entries()) {
+      userContent += `\n\n--- Attached document ${index + 1} ---\n${attachment}`;
+    }
+  }
+
+  const messages: ChatMessage[] = [
+    { role: "system", content: "You are a helpful writing assistant." },
+    { role: "user", content: userContent },
+  ];
+
+  const settings = await getSettings();
+  let withoutVoice: GenerateResult;
+  if (shouldUseBundledInference(settings)) {
+    const resp = await apiJson<{ content: string; input_tokens: number; output_tokens: number }>("/generate/", {
+      method: "POST",
+      body: JSON.stringify({
+        messages,
+        format: params.format,
+      }),
+    });
+    withoutVoice = {
+      text: resp.content,
+      input_tokens: resp.input_tokens,
+      output_tokens: resp.output_tokens,
+    };
+  } else {
+    withoutVoice = await byokChat(messages, params.format);
+  }
+
+  return {
+    with_voice: withVoice,
+    without_voice: withoutVoice,
+  };
+}
+
+// ============================================================
+// Generation sync — server-backed Pro Weave history
+// ============================================================
+
+export async function getSyncedGenerationManifest(): Promise<SyncedGenerationManifestEntry[]> {
+  const data = await apiJson<unknown>("/sync/generations/manifest");
+  if (Array.isArray(data)) return data as SyncedGenerationManifestEntry[];
+  if (data && typeof data === "object") {
+    const payload = data as {
+      generations?: unknown;
+      entries?: unknown;
+      items?: unknown;
+    };
+    if (Array.isArray(payload.generations)) return payload.generations as SyncedGenerationManifestEntry[];
+    if (Array.isArray(payload.entries)) return payload.entries as SyncedGenerationManifestEntry[];
+    if (Array.isArray(payload.items)) return payload.items as SyncedGenerationManifestEntry[];
+  }
+  return [];
+}
+
+export async function getSyncedGeneration(generationId: string): Promise<SyncedGeneration> {
+  return apiJson<SyncedGeneration>(`/sync/generations/${encodeURIComponent(generationId)}`);
 }
 
 // ============================================================
@@ -1610,9 +1747,20 @@ export async function norenProLogin(email: string, password: string): Promise<No
   });
   if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
   const data = await res.json();
-  await setTokens(data.access_token, data.refresh_token);
-  await setInferenceMode("noren_pro");
-  return { logged_in: true, email, inference_mode: "noren_pro", tokens_used: null, tokens_limit: null, requests_this_month: null, generations_used: null, generations_limit: null };
+  const emailVerified = data.email_verified === true;
+  await setTokens(data.access_token, data.refresh_token, emailVerified);
+  await chrome.storage.local.set({ auth_email: email });
+  return {
+    logged_in: true,
+    email,
+    email_verified: emailVerified,
+    inference_mode: "noren_pro",
+    tokens_used: null,
+    tokens_limit: null,
+    requests_this_month: null,
+    generations_used: null,
+    generations_limit: null,
+  };
 }
 
 export async function norenProSignup(email: string, password: string): Promise<NorenProStatus> {
@@ -1623,9 +1771,20 @@ export async function norenProSignup(email: string, password: string): Promise<N
   });
   if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
   const data = await res.json();
-  await setTokens(data.access_token, data.refresh_token);
-  await setInferenceMode("noren_pro");
-  return { logged_in: true, email, inference_mode: "noren_pro", tokens_used: null, tokens_limit: null, requests_this_month: null, generations_used: null, generations_limit: null };
+  const emailVerified = data.email_verified === true;
+  await setTokens(data.access_token, data.refresh_token, emailVerified);
+  await chrome.storage.local.set({ auth_email: email });
+  return {
+    logged_in: true,
+    email,
+    email_verified: emailVerified,
+    inference_mode: "noren_pro",
+    tokens_used: null,
+    tokens_limit: null,
+    requests_this_month: null,
+    generations_used: null,
+    generations_limit: null,
+  };
 }
 
 export async function verifyEmail(code: string): Promise<string> {
@@ -1633,6 +1792,7 @@ export async function verifyEmail(code: string): Promise<string> {
     method: "POST",
     body: JSON.stringify({ code }),
   });
+  await chrome.storage.local.set({ auth_email_verified: true });
   return data.message;
 }
 
@@ -1643,11 +1803,37 @@ export async function resendOtp(): Promise<string> {
   return data.message;
 }
 
+export async function requestPasswordReset(email: string): Promise<string> {
+  const res = await fetch(`${API_BASE}/auth/request-password-reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  if (res.status >= 500) throw new Error("Server error, please try again later");
+  const data = await res.json().catch(() => ({}));
+  return data.message || "If that email exists, a reset code has been sent.";
+}
+
+export async function resetPassword(email: string, code: string, newPassword: string): Promise<string> {
+  const res = await fetch(`${API_BASE}/auth/reset-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, code, new_password: newPassword }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(extractErrorMessage(body) || "Password reset failed. Check the code and try again.");
+  }
+  const data = await res.json().catch(() => ({}));
+  return data.message || "Password reset successfully. Please log in with your new password.";
+}
+
 export async function norenProLogout(): Promise<void> {
   await clearNorenAuthState();
 }
 
 export async function getNorenProUsage(): Promise<NorenProStatus> {
+  const stored = await chrome.storage.local.get(["auth_email", "auth_email_verified"]);
   const data = await apiJson<{
     email: string;
     tokens_used: number;
@@ -1658,7 +1844,8 @@ export async function getNorenProUsage(): Promise<NorenProStatus> {
   }>("/generate/usage");
   return {
     logged_in: true,
-    email: data.email,
+    email: data.email || stored.auth_email || null,
+    email_verified: stored.auth_email_verified !== false,
     inference_mode: "noren_pro",
     tokens_used: data.tokens_used,
     tokens_limit: data.tokens_limit,
@@ -1668,14 +1855,32 @@ export async function getNorenProUsage(): Promise<NorenProStatus> {
   };
 }
 
+export async function getNorenProStatus(): Promise<NorenProStatus> {
+  const stored = await chrome.storage.local.get(["auth_token", "auth_email", "auth_email_verified", "inference_mode"]);
+  return {
+    logged_in: !!stored.auth_token,
+    email: stored.auth_email || null,
+    email_verified: stored.auth_email_verified !== false,
+    inference_mode: stored.inference_mode || "byok",
+    tokens_used: null,
+    tokens_limit: null,
+    requests_this_month: null,
+    generations_used: null,
+    generations_limit: null,
+  };
+}
+
 export async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
   // Server returns entitlements as a nested object; flatten to match our interface
   const data = await apiJson<{
     tier: string;
     active: boolean;
+    email_verified?: boolean;
+    is_founding_member?: boolean;
     one_time_purchases: string[];
     current_period_end: string | null;
     cancel_at_period_end: boolean;
+    extraction_credits_remaining: number | null;
     export_unlock_remaining_cents: number | null;
     export_unlock_progress: number | null;
     entitlements: {
@@ -1693,6 +1898,8 @@ export async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
   return {
     tier: data.tier as SubscriptionStatus["tier"],
     active: data.active,
+    email_verified: data.email_verified ?? true,
+    is_founding_member: data.is_founding_member ?? false,
     can_extract: data.entitlements?.can_extract ?? false,
     can_generate_bundled: data.entitlements?.can_generate_bundled ?? false,
     can_living_profile: data.entitlements?.can_living_profile ?? false,
@@ -1705,16 +1912,25 @@ export async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
     current_period_end: data.current_period_end,
     cancel_at_period_end: data.cancel_at_period_end,
     one_time_purchases: data.one_time_purchases ?? [],
+    extraction_credits_remaining: data.extraction_credits_remaining ?? null,
     export_unlock_remaining_cents: data.export_unlock_remaining_cents ?? null,
     export_unlock_progress: data.export_unlock_progress ?? null,
   };
 }
 
-export async function createCheckout(tier: string): Promise<CheckoutResult> {
+export async function getBillingPublicConfig(): Promise<BillingPublicConfig> {
+  return apiJson<BillingPublicConfig>("/billing/public-config");
+}
+
+export async function createCheckout(tier: string, couponCode?: string): Promise<CheckoutResult> {
   return apiJson<CheckoutResult>("/billing/checkout", {
     method: "POST",
-    body: JSON.stringify({ target: tier }),
+    body: JSON.stringify({ target: tier, ...(couponCode ? { coupon_code: couponCode } : {}) }),
   });
+}
+
+export async function createExportUnlockCheckout(): Promise<CheckoutResult> {
+  return apiJson<CheckoutResult>("/billing/checkout/export-unlock", { method: "POST" });
 }
 
 export async function openBillingPortal(): Promise<string> {
@@ -1737,7 +1953,8 @@ export async function googleOAuthPoll(sessionId: string): Promise<GoogleOAuthPol
 
   // If complete, store the tokens
   if (data.complete && data.access_token) {
-    await setTokens(data.access_token, data.refresh_token);
+    await setTokens(data.access_token, data.refresh_token, true);
+    if (data.email) await chrome.storage.local.set({ auth_email: data.email });
     await setInferenceMode("noren_pro");
   }
 
@@ -1938,7 +2155,10 @@ export async function getRefreshHistory(limit?: number, offset?: number): Promis
   if (limit !== undefined) params.set("limit", String(limit));
   if (offset !== undefined) params.set("offset", String(offset));
   const qs = params.toString();
-  return apiJson<RefreshHistoryEntry[]>(`/profile/refresh-history${qs ? `?${qs}` : ""}`);
+  const data = await apiJson<RefreshHistoryEntry[] | { entries?: RefreshHistoryEntry[] }>(
+    `/profile/refresh-history${qs ? `?${qs}` : ""}`
+  );
+  return Array.isArray(data) ? data : data.entries ?? [];
 }
 
 export async function rollbackProfile(): Promise<void> {
@@ -2182,8 +2402,8 @@ async function* streamByokOpenAI(
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
 
-  const isCustom = provider.name === "custom";
-  const doFetch = isCustom ? bgFetch : fetch;
+  const useProxy = shouldProxyOpenAICompatible(provider);
+  const doFetch = useProxy ? bgFetch : fetch;
   const fetchInit: RequestInit = {
     method: "POST",
     headers,
@@ -2197,12 +2417,12 @@ async function* streamByokOpenAI(
       ],
     }),
   };
-  if (!isCustom) fetchInit.signal = internalController.signal;
+  if (!useProxy) fetchInit.signal = internalController.signal;
   const res = await doFetch(`${provider.baseUrl}/chat/completions`, fetchInit);
 
   if (!res.ok) {
     const text = await res.text();
-    yield { type: "error", message: extractErrorMessage(text || `HTTP ${res.status}`) };
+    yield { type: "error", message: providerHttpError(provider, res.status, text) };
     return;
   }
 

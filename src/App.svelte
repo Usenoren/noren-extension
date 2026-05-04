@@ -37,9 +37,27 @@
     { id: "help", label: "Help", icon: "help" },
   ];
 
+  async function refreshProfileState() {
+    try {
+      const overview = await getProfileOverview();
+      hasProfile = overview.exists;
+      if (overview.exists) {
+        refreshSubscription();
+      }
+    } catch {
+      hasProfile = false;
+    }
+  }
+
   $effect(() => {
     syncThemeFromStorage();
     ensureAnalyticsBootstrap().catch(() => {});
+    const handleAuthChanged = () => {
+      refreshProfileState();
+    };
+    window.addEventListener("noren:auth-changed", handleAuthChanged);
+    window.addEventListener("noren:profile-changed", handleAuthChanged);
+
     chrome.storage.local.get("onboarding_complete").then(({ onboarding_complete }) => {
       if (!onboarding_complete) {
         showOnboarding = true;
@@ -55,7 +73,7 @@
           view = "settings";
         }
 
-        // Fetch context text once, pass to both views
+        // Fetch context text once for Weave. Chat stays a general thinking space.
         const ctx = await getContextText();
         if (ctx) contextText = ctx;
 
@@ -72,6 +90,11 @@
     }).catch(() => {
       loading = false;
     });
+
+    return () => {
+      window.removeEventListener("noren:auth-changed", handleAuthChanged);
+      window.removeEventListener("noren:profile-changed", handleAuthChanged);
+    };
   });
 
   function clearContext() {
@@ -184,7 +207,7 @@
       <RepurposeView />
     </div>
     <div class="absolute inset-0 flex flex-col overflow-hidden" class:hidden={view !== "chat"}>
-      <ChatView initialContext={contextText} oncontextused={clearContext} />
+      <ChatView />
     </div>
     <div class="absolute inset-0 flex flex-col overflow-hidden" class:hidden={view !== "profile"}>
       <ProfileView />

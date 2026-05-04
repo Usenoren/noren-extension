@@ -7,6 +7,8 @@
     googleOAuthPoll,
     verifyEmail,
     resendOtp,
+    requestPasswordReset,
+    resetPassword,
     getProfileOverview,
   } from "$lib/api/noren";
   import { PALETTES, setAndPersistTheme, applyTheme, type PaletteId } from "$lib/stores/theme.svelte";
@@ -44,6 +46,13 @@
   let authMode = $state<"login" | "signup">("login");
   let email = $state("");
   let password = $state("");
+  let passwordResetOpen = $state(false);
+  let passwordResetLoading = $state(false);
+  let passwordResetMessage = $state("");
+  let passwordResetEmail = $state("");
+  let passwordResetCode = $state("");
+  let passwordResetNewPassword = $state("");
+  let passwordResetConfirmPassword = $state("");
   let loading = $state(false);
   let googleLoading = $state(false);
   let error = $state("");
@@ -54,8 +63,17 @@
   let otpMessage = $state("");
   let resendCooldown = $state(0);
 
+  function showOtp(nextEmail: string | null | undefined, message = "Enter the verification code we sent to your email.") {
+    email = nextEmail || email;
+    password = "";
+    otpMessage = message;
+    error = "";
+    screen = "otp";
+  }
+
   async function handleByok() {
     await chrome.storage.local.set({ onboarding_complete: true });
+    window.dispatchEvent(new CustomEvent("noren:auth-changed", { detail: { mode: "byok" } }));
     goToNextSteps("byok");
   }
 
@@ -65,21 +83,70 @@
     error = "";
     try {
       if (authMode === "signup") {
-        await norenProSignup(email.trim(), password.trim());
-        password = "";
-        otpMessage = "Check your email for a verification code.";
-        screen = "otp";
+        const status = await norenProSignup(email.trim(), password.trim());
+        showOtp(status.email || email.trim(), "Check your email for a verification code.");
         startResendCooldown();
       } else {
-        await norenProLogin(email.trim(), password.trim());
+        const status = await norenProLogin(email.trim(), password.trim());
+        if (!status.email_verified) {
+          showOtp(status.email || email.trim());
+          return;
+        }
         await setInferenceMode("noren_pro");
         await chrome.storage.local.set({ onboarding_complete: true });
+        window.dispatchEvent(new CustomEvent("noren:auth-changed", { detail: { mode: "noren_pro" } }));
         goToNextSteps("pro");
       }
     } catch (e) {
       error = friendlyError(e);
     } finally {
       loading = false;
+    }
+  }
+
+  async function handleRequestPasswordReset() {
+    const targetEmail = (passwordResetEmail || email).trim();
+    if (!targetEmail) {
+      error = "Enter your email first.";
+      return;
+    }
+    passwordResetLoading = true;
+    error = "";
+    passwordResetMessage = "";
+    try {
+      passwordResetEmail = targetEmail;
+      passwordResetMessage = await requestPasswordReset(targetEmail);
+    } catch (e) {
+      error = friendlyError(e);
+    } finally {
+      passwordResetLoading = false;
+    }
+  }
+
+  async function handleResetPassword() {
+    if (!passwordResetEmail.trim() || !passwordResetCode.trim() || !passwordResetNewPassword) return;
+    if (passwordResetNewPassword !== passwordResetConfirmPassword) {
+      error = "Passwords don't match.";
+      return;
+    }
+    passwordResetLoading = true;
+    error = "";
+    try {
+      passwordResetMessage = await resetPassword(
+        passwordResetEmail.trim(),
+        passwordResetCode.trim(),
+        passwordResetNewPassword,
+      );
+      authMode = "login";
+      email = passwordResetEmail.trim();
+      password = "";
+      passwordResetCode = "";
+      passwordResetNewPassword = "";
+      passwordResetConfirmPassword = "";
+    } catch (e) {
+      error = friendlyError(e);
+    } finally {
+      passwordResetLoading = false;
     }
   }
 
@@ -102,6 +169,7 @@
       email = "";
       await setInferenceMode("noren_pro");
       await chrome.storage.local.set({ onboarding_complete: true });
+      window.dispatchEvent(new CustomEvent("noren:auth-changed", { detail: { mode: "noren_pro" } }));
       goToNextSteps("pro");
     } catch (e) {
       error = friendlyError(e);
@@ -138,6 +206,7 @@
           if (result.complete) {
             await setInferenceMode("noren_pro");
             await chrome.storage.local.set({ onboarding_complete: true });
+            window.dispatchEvent(new CustomEvent("noren:auth-changed", { detail: { mode: "noren_pro" } }));
             goToNextSteps("pro");
             return;
           }
@@ -291,7 +360,7 @@
       <!-- Auth mode toggle -->
       <div class="flex gap-1">
         <button
-          onclick={() => { authMode = "login"; error = ""; }}
+          onclick={() => { authMode = "login"; error = ""; passwordResetOpen = false; }}
           class="flex-1 px-2 py-1 text-[10px] uppercase tracking-wide cursor-pointer rounded-md
             {authMode === 'login'
               ? 'bg-secondary text-white font-medium'
@@ -300,7 +369,7 @@
           Sign in
         </button>
         <button
-          onclick={() => { authMode = "signup"; error = ""; }}
+          onclick={() => { authMode = "signup"; error = ""; passwordResetOpen = false; }}
           class="flex-1 px-2 py-1 text-[10px] uppercase tracking-wide cursor-pointer rounded-md
             {authMode === 'signup'
               ? 'bg-secondary text-white font-medium'
@@ -338,31 +407,91 @@
         </div>
       </div>
 
-      <!-- Email / Password -->
-      <input
-        type="email"
-        bind:value={email}
-        class="px-3 py-1.5 text-xs border border-border bg-surface text-foreground rounded-md focus:outline-none focus:border-secondary"
-        placeholder="Email"
-      />
-      <input
-        type="password"
-        bind:value={password}
-        onkeydown={(e) => { if (e.key === "Enter") handleProAuth(); }}
-        class="px-3 py-1.5 text-xs border border-border bg-surface text-foreground rounded-md focus:outline-none focus:border-secondary"
-        placeholder="Password"
-      />
-      <button
-        onclick={handleProAuth}
-        disabled={loading || !email.trim() || !password.trim()}
-        class="w-full py-2 text-xs font-medium bg-accent text-white hover:bg-accent-hover transition-colors cursor-pointer disabled:opacity-50 rounded-md"
-      >
-        {#if loading}
-          <span class="inline-flex items-center gap-1"><LoadingSpinner /> {authMode === "signup" ? "Creating..." : "Signing in..."}</span>
-        {:else}
-          {authMode === "signup" ? "Create account" : "Sign in"}
+      {#if passwordResetOpen}
+        <input
+          type="email"
+          bind:value={passwordResetEmail}
+          class="px-3 py-1.5 text-xs border border-border bg-surface text-foreground rounded-md focus:outline-none focus:border-secondary"
+          placeholder="Email"
+        />
+        <button
+          onclick={handleRequestPasswordReset}
+          disabled={passwordResetLoading || !passwordResetEmail.trim()}
+          class="w-full py-2 text-xs font-medium bg-surface border border-border text-foreground hover:border-secondary transition-colors cursor-pointer disabled:opacity-50 rounded-md"
+        >
+          {#if passwordResetLoading}<LoadingSpinner />{:else}Send reset code{/if}
+        </button>
+        <input
+          type="text"
+          bind:value={passwordResetCode}
+          class="px-3 py-1.5 text-xs border border-border bg-surface text-foreground rounded-md focus:outline-none focus:border-secondary"
+          placeholder="Reset code"
+          autocomplete="one-time-code"
+        />
+        <input
+          type="password"
+          bind:value={passwordResetNewPassword}
+          class="px-3 py-1.5 text-xs border border-border bg-surface text-foreground rounded-md focus:outline-none focus:border-secondary"
+          placeholder="New password"
+        />
+        <input
+          type="password"
+          bind:value={passwordResetConfirmPassword}
+          onkeydown={(e) => { if (e.key === "Enter") handleResetPassword(); }}
+          class="px-3 py-1.5 text-xs border border-border bg-surface text-foreground rounded-md focus:outline-none focus:border-secondary"
+          placeholder="Confirm new password"
+        />
+        <button
+          onclick={handleResetPassword}
+          disabled={passwordResetLoading || !passwordResetEmail.trim() || !passwordResetCode.trim() || !passwordResetNewPassword}
+          class="w-full py-2 text-xs font-medium bg-accent text-white hover:bg-accent-hover transition-colors cursor-pointer disabled:opacity-50 rounded-md"
+        >
+          Reset password
+        </button>
+        {#if passwordResetMessage}
+          <p class="text-[10px] text-secondary leading-relaxed">{passwordResetMessage}</p>
         {/if}
-      </button>
+        <button
+          onclick={() => { passwordResetOpen = false; error = ""; }}
+          class="text-xs text-muted hover:text-secondary transition-colors cursor-pointer"
+        >
+          Back to sign in
+        </button>
+      {:else}
+        <!-- Email / Password -->
+        <input
+          type="email"
+          bind:value={email}
+          class="px-3 py-1.5 text-xs border border-border bg-surface text-foreground rounded-md focus:outline-none focus:border-secondary"
+          placeholder="Email"
+        />
+        <input
+          type="password"
+          bind:value={password}
+          onkeydown={(e) => { if (e.key === "Enter") handleProAuth(); }}
+          class="px-3 py-1.5 text-xs border border-border bg-surface text-foreground rounded-md focus:outline-none focus:border-secondary"
+          placeholder="Password"
+        />
+        <button
+          onclick={handleProAuth}
+          disabled={loading || !email.trim() || !password.trim()}
+          class="w-full py-2 text-xs font-medium bg-accent text-white hover:bg-accent-hover transition-colors cursor-pointer disabled:opacity-50 rounded-md"
+        >
+          {#if loading}
+            <span class="inline-flex items-center gap-1"><LoadingSpinner /> {authMode === "signup" ? "Creating..." : "Signing in..."}</span>
+          {:else}
+            {authMode === "signup" ? "Create account" : "Sign in"}
+          {/if}
+        </button>
+        {#if authMode === "login"}
+          <button
+            onclick={() => { passwordResetOpen = true; passwordResetEmail = email; error = ""; passwordResetMessage = ""; }}
+            class="text-xs text-muted hover:text-secondary transition-colors cursor-pointer"
+          >
+            Forgot password?
+          </button>
+        {/if}
+      {/if}
 
       <!-- Error -->
       {#if error}
