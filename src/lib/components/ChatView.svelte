@@ -1,8 +1,6 @@
 <script lang="ts">
   import {
     chatSend,
-    getProfileOverview,
-    listFormats,
     saveChat,
     listChats,
     loadChat,
@@ -23,15 +21,12 @@
     return DOMPurify.sanitize(marked.parse(content) as string);
   }
 
-  let { initialContext = "", oncontextused }: { initialContext?: string; oncontextused?: () => void } = $props();
-
   // --- State ---
   let messages: ChatMessage[] = $state([]);
   let input = $state("");
   let isLoading = $state(false);
   let error = $state("");
   let format = $state("general");
-  let formats = $state<string[]>([]);
   let totalTokens = $state(0);
   let messagesContainer: HTMLDivElement | undefined = $state();
 
@@ -52,33 +47,10 @@
     if (initDone) return;
     initDone = true;
 
-    getProfileOverview().then((overview) => {
-      let f = overview.formats;
-      if (!f.includes("general")) {
-        f = ["general", ...f];
-      }
-      formats = f;
-      if (!f.includes(format)) {
-        format = f[0];
-      }
-    });
-
-    listFormats().then((f) => {
-      if (formats.length <= 1) {
-        if (!f.includes("general")) {
-          f = ["general", ...f];
-        }
-        formats = f;
-      }
-    });
-
     // Pull remote chats from server, then refresh history list
     syncChatsFromServer().then(() => refreshHistory());
     refreshHistory();
-    // Skip restoring last chat if we have context text to show
-    if (!initialContext) {
-      restoreActiveChat();
-    }
+    restoreActiveChat();
   });
 
   // Sync chats when side panel / popup regains focus
@@ -93,26 +65,6 @@
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onFocus);
     };
-  });
-
-  // React to context changes from parent — start a fresh chat
-  let lastAppliedContext = "";
-  $effect(() => {
-    if (initialContext && initialContext !== lastAppliedContext) {
-      // Start a new chat with the context text
-      messages = [];
-      conversationId = null;
-      conversationCreatedAt = null;
-      totalTokens = 0;
-      showHistory = false;
-      input = initialContext;
-      lastAppliedContext = initialContext;
-      setActiveChatId(null);
-    } else if (!initialContext && lastAppliedContext) {
-      // Context was cleared (other view consumed it)
-      if (input === lastAppliedContext) input = "";
-      lastAppliedContext = "";
-    }
   });
 
   /** Restore the last active conversation from storage on popup open */
@@ -135,7 +87,7 @@
     const msgs: ChatMessage[] = JSON.parse(JSON.stringify(conv.messages || []));
     conversationId = conv.id;
     conversationCreatedAt = conv.created_at;
-    format = conv.format || "general";
+    format = "general";
     totalTokens = conv.total_tokens || 0;
     messages = msgs;
     scrollToBottom();
@@ -278,7 +230,6 @@
   async function handleSend() {
     const text = input.trim();
     if (!text || isLoading) return;
-    oncontextused?.();
 
     const userMessage: ChatMessage = { role: "user", content: text };
     messages = [...messages, userMessage];
@@ -448,15 +399,6 @@
         </div>
       {/if}
     </div>
-
-    <select
-      bind:value={format}
-      class="px-2 py-1 text-xs border border-border bg-surface text-foreground rounded-md focus:outline-none focus:border-secondary"
-    >
-      {#each formats as fmt}
-        <option value={fmt}>{fmt}</option>
-      {/each}
-    </select>
 
     {#if totalTokens > 0}
       <span class="text-[10px] text-muted ml-auto">{totalTokens} tokens</span>
