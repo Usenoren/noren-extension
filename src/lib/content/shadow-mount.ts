@@ -38,6 +38,26 @@ export function createShadowMount(
   return {
     host,
     update: (nextProps: Record<string, unknown>) => {
+      const mounted = instance as Record<string, unknown> & {
+        $set?: (props: Record<string, unknown>) => void;
+      };
+
+      if (typeof mounted.$set === "function") {
+        mounted.$set(nextProps);
+        return;
+      }
+
+      let usedAccessors = false;
+      for (const [key, value] of Object.entries(nextProps)) {
+        if (key in mounted) {
+          mounted[key] = value;
+          usedAccessors = true;
+        }
+      }
+      if (usedAccessors) {
+        return;
+      }
+
       unmount(instance);
       instance = mount(component, { target: container, props: nextProps });
     },

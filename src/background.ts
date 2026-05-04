@@ -2,9 +2,9 @@
 
 import { generate, generateStream } from "$lib/api/noren";
 
-// Strip Origin header on Anthropic API requests (runs every service worker start)
+// Strip Origin header where providers reject browser-extension origins.
 chrome.declarativeNetRequest.updateDynamicRules({
-  removeRuleIds: [1],
+  removeRuleIds: [1, 2],
   addRules: [
     {
       id: 1,
@@ -26,8 +26,28 @@ chrome.declarativeNetRequest.updateDynamicRules({
         ],
       },
     },
+    {
+      id: 2,
+      priority: 1,
+      action: {
+        type: "modifyHeaders" as chrome.declarativeNetRequest.RuleActionType,
+        requestHeaders: [
+          {
+            header: "Origin",
+            operation: "remove" as chrome.declarativeNetRequest.HeaderOperation,
+          },
+        ],
+      },
+      condition: {
+        regexFilter: "^http://(localhost|127\\.0\\.0\\.1)(:[0-9]+)?/",
+        resourceTypes: [
+          "xmlhttprequest" as chrome.declarativeNetRequest.ResourceType,
+          "other" as chrome.declarativeNetRequest.ResourceType,
+        ],
+      },
+    },
   ],
-}).then(() => console.log("[dnr] Origin-strip rule active"))
+}).then(() => console.log("[dnr] Origin-strip rules active"))
   .catch((e) => console.error("[dnr] rule failed:", e));
 
 // Register context menu + side panel behavior on install
@@ -138,6 +158,18 @@ chrome.runtime.onConnect.addListener((port) => {
     const controller = new AbortController();
     port.onDisconnect.addListener(() => controller.abort("User cancelled"));
 
+    // MV3 service worker idle timer only resets on chrome.* event activity.
+    // Pre-stream silence on slow generations would let it die at 30s, killing
+    // the fetch. A periodic port message counts as chrome.runtime activity
+    // on both ends and keeps the SW (and the port) alive.
+    const keepAlive = setInterval(() => {
+      try {
+        port.postMessage({ type: "ping" });
+      } catch {
+        // Port already disconnected — interval will be cleared below.
+      }
+    }, 20_000);
+
     try {
       const stream = generateStream({
         prompt: promptFn(text, surroundingContext, intent, detectedFormat),
@@ -163,6 +195,8 @@ chrome.runtime.onConnect.addListener((port) => {
       } catch {
         // Port already disconnected
       }
+    } finally {
+      clearInterval(keepAlive);
     }
   });
 });

@@ -2,6 +2,7 @@
 
 import { createShadowMount, type ShadowMountResult } from "$lib/content/shadow-mount";
 import SelectionToolbar from "$lib/content/SelectionToolbar.svelte";
+import StreamingDock from "$lib/content/StreamingDock.svelte";
 import {
   QuickActionSession,
   type QuickActionMode,
@@ -12,6 +13,7 @@ import {
 } from "$lib/content/quick-action-session";
 // @ts-ignore
 import toolbarCss from "$lib/content/selection-toolbar.css?inline";
+import streamingDockCss from "$lib/content/streaming-dock.css?inline";
 
 // ============================================================
 // Message listener (existing functionality)
@@ -481,6 +483,7 @@ function getSelectionAnchors(selection: Selection | null, selectedText: string, 
 // ============================================================
 
 let toolbarMount: ShadowMountResult | null = null;
+let streamingDockMount: ShadowMountResult | null = null;
 let processingAction = false;
 let activeQuickActionSession: QuickActionSession | null = null;
 let pendingReplyCommit: {
@@ -855,6 +858,63 @@ function waitForNextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeGeneratedText(text: string): string {
+  return text
+    .normalize("NFKC")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function textIncludesGeneratedText(haystack: string, finalText: string): boolean {
+  const normalizedHaystack = normalizeGeneratedText(haystack);
+  const normalizedFinal = normalizeGeneratedText(finalText);
+  if (!normalizedHaystack || !normalizedFinal) return false;
+  if (haystack.includes(finalText) || normalizedHaystack.includes(normalizedFinal)) return true;
+
+  const startProbe = normalizeGeneratedText(finalText.slice(0, Math.min(96, finalText.length)));
+  const endProbe = normalizeGeneratedText(finalText.slice(Math.max(0, finalText.length - 96)));
+  if (!startProbe || !endProbe) return false;
+  return normalizedHaystack.includes(startProbe) && normalizedHaystack.includes(endProbe);
+}
+
+function getFrameworkEditorRoot(el: HTMLElement): HTMLElement {
+  return (
+    el.closest("[data-testid^='tweetTextarea_']") ||
+    el.closest(".DraftEditor-root") ||
+    el.closest("[data-lexical-editor]") ||
+    el.closest(".ql-editor") ||
+    el.closest("shreddit-composer") ||
+    el.closest("faceplate-textarea") ||
+    el
+  ) as HTMLElement;
+}
+
+function isElementVisible(el: HTMLElement): boolean {
+  const rect = el.getBoundingClientRect();
+  const style = window.getComputedStyle(el);
+  return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+}
+
+function getFrameworkCommitCandidates(target: HTMLElement): HTMLElement[] {
+  const candidates = new Set<HTMLElement>([target, getFrameworkEditorRoot(target)]);
+  document
+    .querySelectorAll<HTMLElement>(
+      "[contenteditable='true'], [role='textbox'], [data-testid^='tweetTextarea_'], .DraftEditor-root, [data-lexical-editor], .ql-editor",
+    )
+    .forEach((el) => {
+      if (!el.isConnected || !isElementVisible(el)) return;
+      if (!isFrameworkEditor(el) && el.getAttribute("contenteditable") !== "true") return;
+      candidates.add(el);
+      candidates.add(getFrameworkEditorRoot(el));
+    });
+  return [...candidates].filter((el) => el.isConnected && isElementVisible(el));
+}
+
 async function verifyEditableCommit(
   target: HTMLElement,
   beforeText: string,
@@ -863,23 +923,22 @@ async function verifyEditableCommit(
 ): Promise<boolean> {
   await waitForNextFrame();
   await waitForNextFrame();
+  await wait(80);
 
   if (!target.isConnected) return false;
-
-  const afterText = target.textContent || "";
-  if (afterText === beforeText) return false;
   if (!finalText.trim()) return false;
 
-  if (finalText.length <= 280) {
-    return afterText.includes(finalText);
-  }
-
-  const startProbe = finalText.slice(0, Math.min(96, finalText.length)).trim();
-  const endProbe = finalText.slice(Math.max(0, finalText.length - 96)).trim();
-  if (!startProbe || !endProbe) return false;
-  if (!afterText.includes(startProbe) || !afterText.includes(endProbe)) return false;
-  if (originalText && afterText.includes(originalText) && !afterText.includes(finalText)) return false;
-  return true;
+  const candidates = getFrameworkCommitCandidates(target);
+  return candidates.some((candidate) => {
+    if (!candidate.isConnected) return false;
+    const afterText = candidate.textContent || "";
+    if (afterText === beforeText && !textIncludesGeneratedText(afterText, finalText)) return false;
+    if (!textIncludesGeneratedText(afterText, finalText)) return false;
+    if (originalText && textIncludesGeneratedText(afterText, originalText) && !textIncludesGeneratedText(afterText, finalText)) {
+      return false;
+    }
+    return true;
+  });
 }
 
 function strictReplaceTextareaInput(
@@ -952,6 +1011,7 @@ function commitPendingReplyTarget(target: HTMLElement) {
   dismissToolbar();
 
   if (applied) {
+    dismissStreamingDock();
     activeQuickActionSession?.transition("committed", "Reply target captured and reply inserted");
   } else {
     activeQuickActionSession?.transition("failed_manual", "Reply target unsupported; copied instead");
@@ -968,6 +1028,85 @@ function dismissToolbar() {
   }
 }
 
+function showStreamingDock(text: string, label: string) {
+  const props = {
+    text,
+    label,
+    status: "Weaving...",
+    done: false,
+    hint: "",
+    copyLabel: "Copy",
+    copiedLabel: "Copied",
+    onCopy: undefined,
+    onClose: undefined,
+  };
+  if (!streamingDockMount) {
+    streamingDockMount = createShadowMount(
+      StreamingDock as any,
+      props,
+      streamingDockCss,
+      "noren-streaming-dock",
+    );
+    streamingDockMount.host.setAttribute("data-theme", cachedTheme);
+    document.body.appendChild(streamingDockMount.host);
+    return;
+  }
+  streamingDockMount.update(props);
+}
+
+function showStreamingDockDone(
+  text: string,
+  label: string,
+  onCopy: () => void,
+  onClose: () => void,
+  hint = "",
+  copyLabel = "Copy",
+  copiedLabel = "Copied",
+) {
+  if (!streamingDockMount) {
+    streamingDockMount = createShadowMount(
+      StreamingDock as any,
+      { text, label, done: true, hint, copyLabel, copiedLabel, onCopy, onClose },
+      streamingDockCss,
+      "noren-streaming-dock",
+    );
+    streamingDockMount.host.setAttribute("data-theme", cachedTheme);
+    document.body.appendChild(streamingDockMount.host);
+    return;
+  }
+  streamingDockMount.update({ text, label, done: true, hint, copyLabel, copiedLabel, onCopy, onClose });
+}
+
+function showReplyTargetDock(finalText: string) {
+  showStreamingDockDone(
+    finalText,
+    "Reply Ready",
+    () => {
+      safeCopy(finalText, "Copied to clipboard");
+      pendingReplyCommit = null;
+      clearPendingReplyTargetBinding();
+      dismissStreamingDock();
+      activeQuickActionSession?.transition("cancelled", "Reply target capture cancelled after copy");
+    },
+    () => {
+      pendingReplyCommit = null;
+      clearPendingReplyTargetBinding();
+      dismissStreamingDock();
+      activeQuickActionSession?.transition("cancelled", "Reply target capture cancelled");
+    },
+    "Copied. Click any text box to insert this reply.",
+    "Copy again",
+    "Copied",
+  );
+}
+
+function dismissStreamingDock() {
+  if (streamingDockMount) {
+    streamingDockMount.destroy();
+    streamingDockMount = null;
+  }
+}
+
 async function handleQuickAction(action: string, text: string, intent?: string) {
   const quickAction = action as QuickActionType;
   const plan = buildQuickActionPlan(quickAction, text, intent);
@@ -979,31 +1118,13 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
 
   processingAction = true;
 
-  // Show loading state — recreate toolbar with loading=true
-  const cachedCapture = pendingQuickActionCapture && pendingQuickActionCapture.text === text
-    ? pendingQuickActionCapture
-    : null;
-  let tx = cachedCapture?.ui.x ?? window.innerWidth / 2;
-  let ty = cachedCapture?.ui.y ?? 100;
-  let belowPos = cachedCapture?.ui.below ?? false;
-
   const targetEl = plan.target.target;
   const streamIntoField = !!targetEl;
 
-  // Destroy old toolbar, create loading one
-  if (toolbarMount) {
-    toolbarMount.destroy();
-    toolbarMount = null;
-  }
-
-  toolbarMount = createShadowMount(
-    SelectionToolbar as any,
-    { x: Math.max(120, Math.min(tx, window.innerWidth - 120)), y: ty, loading: true, below: belowPos, onAction: () => {} },
-    toolbarCss,
-    "noren-selection-toolbar",
-  );
-  toolbarMount.host.setAttribute("data-theme", cachedTheme);
-  document.body.appendChild(toolbarMount.host);
+  // Generation progress belongs to the streaming dock. The selection toolbar
+  // returns only for states that need an anchored instruction, such as
+  // choosing a reply insertion target.
+  destroyToolbarMount();
 
   // Gather context signals before deletion (selection still intact)
   const detectedFormat = plan.detectedFormat;
@@ -1025,18 +1146,14 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
     mode: plan.mode,
   });
 
+  const dockLabel = action === "reply" ? "Reply" : action === "rewrite" ? "Rewrite" : "Fix";
+  showStreamingDock("", dockLabel);
+
   port.onMessage.addListener((event) => {
     if (event.type === "delta") {
       streamedText += event.text;
       activeQuickActionSession?.appendPreview(event.text);
-      showToolbarStatus(
-        tx,
-        ty,
-        belowPos,
-        "Weaving...",
-        activeQuickActionSession?.previewBuffer || streamedText,
-        action === "reply" ? "Reply" : action === "rewrite" ? "Rewrite" : "Fix",
-      );
+      showStreamingDock(activeQuickActionSession?.previewBuffer || streamedText, dockLabel);
     } else if (event.type === "done") {
       streamTerminated = true;
       finalContent = event.content || streamedText;
@@ -1049,6 +1166,7 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
       void (async () => {
         let commitApplied = false;
         let usedManualFallback = false;
+        try {
 
         if (isContentEditable && targetEl) {
           const beforeText = targetEl.textContent || "";
@@ -1087,20 +1205,13 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
           } else {
             targetEl.focus();
             if (plan.mode === "reply_insert") {
-              const anchor = getReplyCommitAnchor();
               pendingReplyCommit = {
                 sessionId: plan.sessionId,
                 finalText: finalContent,
               };
               clearPendingReplyTargetBinding();
-              showToolbarStatus(
-                anchor.x,
-                anchor.y,
-                anchor.below,
-                "Click where the reply should go",
-                finalContent,
-                "Reply Ready",
-              );
+              safeCopy(finalContent, "");
+              showReplyTargetDock(finalContent);
               activeQuickActionSession?.transition("executing", "Awaiting explicit reply target");
               return;
             } else if (findAndSelectAnchoredText(targetEl, text, plan.target.anchors)) {
@@ -1151,20 +1262,13 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
           }
         } else {
           if (plan.mode === "reply_insert") {
-            const anchor = getReplyCommitAnchor();
             pendingReplyCommit = {
               sessionId: plan.sessionId,
               finalText: finalContent,
             };
             clearPendingReplyTargetBinding();
-            showToolbarStatus(
-              anchor.x,
-              anchor.y,
-              anchor.below,
-              "Click where the reply should go",
-              finalContent,
-              "Reply Ready",
-            );
+            safeCopy(finalContent, "");
+            showReplyTargetDock(finalContent);
             activeQuickActionSession?.transition("executing", "Awaiting explicit reply target");
             return;
           } else {
@@ -1173,15 +1277,38 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
           }
         }
         if (commitApplied) {
+          dismissStreamingDock();
           activeQuickActionSession?.transition("committed", "Quick action applied");
         } else if (usedManualFallback) {
           activeQuickActionSession?.transition("failed_manual", "Quick action copied instead of applying");
+        }
+        } catch (err) {
+          console.error("[Noren] Quick action commit failed:", err);
+          if (finalContent) {
+            safeCopy(finalContent, "Copied result. Couldn't apply automatically.");
+          }
+          activeQuickActionSession?.transition("failed_recoverable", "Quick action commit threw", {
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+
+        if (!commitApplied && finalContent) {
+          showStreamingDockDone(
+            finalContent,
+            dockLabel,
+            () => {
+              safeCopy(finalContent, "Copied to clipboard");
+              dismissStreamingDock();
+            },
+            () => dismissStreamingDock(),
+          );
         }
       })();
     } else if (event.type === "error") {
       streamTerminated = true;
       port.disconnect();
       dismissToolbar();
+      dismissStreamingDock();
       activeQuickActionSession?.transition("failed_recoverable", "Quick action generation failed", {
         message: event.message,
       });
@@ -1194,6 +1321,7 @@ async function handleQuickAction(action: string, text: string, intent?: string) 
     if (streamTerminated) return;
     streamTerminated = true;
     dismissToolbar();
+    dismissStreamingDock();
     activeQuickActionSession?.transition("failed_recoverable", "Quick action stream disconnected before completion", {
       hadPartialOutput: !!streamedText,
     });
@@ -1253,14 +1381,18 @@ function safeCopy(text: string, successMessage = "Copied to clipboard") {
     }
   };
 
+  const notify = () => {
+    if (successMessage) showCopiedNotificationWithText(successMessage);
+  };
+
   navigator.clipboard.writeText(text)
-    .then(() => showCopiedNotificationWithText(successMessage))
+    .then(notify)
     .catch(() => {
       if (legacy()) {
-        showCopiedNotificationWithText(successMessage);
+        notify();
       } else {
         console.error("[Noren] Failed to copy to clipboard:", text.slice(0, 100));
-        showErrorNotification("Couldn't copy to clipboard");
+        if (successMessage) showErrorNotification("Couldn't copy to clipboard");
       }
     });
 }
