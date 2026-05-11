@@ -2,6 +2,11 @@
 
 AI writing assistant that learns your voice. Generate text, rewrite selections, and chat - all from your browser.
 
+Noren is useful when generic AI voice is the main failure mode: fiction writers preserving character and narrator voice, newsletter writers avoiding content-marketing sameness, and founders/operators who want email, posts, replies, and agent-written communication to sound like them.
+
+- Fiction use case: [AI fiction writing: why every character sounds like ChatGPT](https://usenoren.ai/blog/ai-fiction-writing-character-voice)
+- Newsletter use case: [How to use AI for your newsletter without losing your voice](https://usenoren.ai/blog/ai-newsletter-writing)
+
 ### Quick Actions
 Highlight text on any page. Rewrite, reply, or fix in your voice.
 
