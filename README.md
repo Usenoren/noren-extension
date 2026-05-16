@@ -6,6 +6,8 @@ Noren is useful when generic AI voice is the main failure mode: fiction writers 
 
 - Fiction use case: [AI fiction writing: why every character sounds like ChatGPT](https://usenoren.ai/blog/ai-fiction-writing-character-voice)
 - Newsletter use case: [How to use AI for your newsletter without losing your voice](https://usenoren.ai/blog/ai-newsletter-writing)
+- Raw profile artifact: [Markdown sample, using public-safe demo data](examples/sample-voice-profile.md)
+- Interactive examples: [sample profiles from named public writers](https://usenoren.ai/sample-voice-profile)
 
 ### Quick Actions
 Highlight text on any page. Rewrite, reply, or fix in your voice.
